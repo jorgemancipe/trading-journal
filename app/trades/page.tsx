@@ -10,7 +10,7 @@ type Trade = {
   quantity: number;
   entry: number;
   exit: number;
-  profit: number; // computed at submit time
+  profit: number;
 };
 
 const initialTrades: Trade[] = [
@@ -24,24 +24,16 @@ const initialTrades: Trade[] = [
     exit: 174.85,
     profit: (174.85 - 172.35) * 100,
   },
-  {
-    id: 2,
-    date: "2026-05-03",
-    symbol: "TSLA",
-    side: "Sell",
-    quantity: 50,
-    entry: 695.2,
-    exit: 697.6,
-    profit: (695.2 - 697.6) * 50,
-  },
 ];
 
 export default function TradesPage() {
   const [trades, setTrades] = useState<Trade[]>(initialTrades);
   const [showForm, setShowForm] = useState(false);
 
+  const today = new Date().toISOString().split("T")[0];
+
   const [form, setForm] = useState({
-    date: "",
+    date: today,
     symbol: "",
     side: "Buy" as "Buy" | "Sell",
     quantity: 0,
@@ -49,16 +41,29 @@ export default function TradesPage() {
     exit: 0,
   });
 
-  // Live computed P/L preview (updates as you type)
+  // --- live profit preview ---
   const liveProfit = useMemo(() => {
-    const qty = Number(form.quantity) || 0;
-    const entry = Number(form.entry) || 0;
-    const exit = Number(form.exit) || 0;
+    const qty = Number(form.quantity);
+    const entry = Number(form.entry);
+    const exit = Number(form.exit);
 
-    // Long (Buy): (Exit - Entry) * Qty
-    // Short (Sell): (Entry - Exit) * Qty
-    return form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
+    if (qty <= 0 || entry <= 0 || exit <= 0) return 0;
+
+    return form.side === "Buy"
+      ? (exit - entry) * qty
+      : (entry - exit) * qty;
   }, [form]);
+
+  // --- validation ---
+  const errors = {
+    symbol: form.symbol.trim() === "",
+    quantity: form.quantity <= 0,
+    entry: form.entry <= 0,
+    exit: form.exit <= 0,
+    date: form.date === "",
+  };
+
+  const isValid = !Object.values(errors).some(Boolean);
 
   const totalPL = useMemo(
     () => trades.reduce((sum, t) => sum + t.profit, 0),
@@ -67,14 +72,16 @@ export default function TradesPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isValid) return;
 
-    const qty = Number(form.quantity) || 0;
-    const entry = Number(form.entry) || 0;
-    const exit = Number(form.exit) || 0;
+    const qty = Number(form.quantity);
+    const entry = Number(form.entry);
+    const exit = Number(form.exit);
 
-    // Compute profit using standard long/short formulas [1](https://help.tradervue.com/article/3440-mfe-and-mae-calculations)[2](https://www.tradervue.com/blog/mfe-and-mae-calculations)
     const profit =
-      form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
+      form.side === "Buy"
+        ? (exit - entry) * qty
+        : (entry - exit) * qty;
 
     const newTrade: Trade = {
       id: Date.now(),
@@ -89,9 +96,9 @@ export default function TradesPage() {
 
     setTrades([...trades, newTrade]);
 
-    // Reset form
+    // reset form smartly
     setForm({
-      date: "",
+      date: today,
       symbol: "",
       side: "Buy",
       quantity: 0,
@@ -134,16 +141,20 @@ export default function TradesPage() {
             type="date"
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
+            className={`border rounded px-3 py-2 ${
+              errors.date ? "border-red-400" : ""
+            }`}
             required
-            className="border rounded px-3 py-2"
           />
 
           <input
             placeholder="Symbol (e.g. AAPL)"
             value={form.symbol}
             onChange={(e) => setForm({ ...form, symbol: e.target.value })}
+            className={`border rounded px-3 py-2 ${
+              errors.symbol ? "border-red-400" : ""
+            }`}
             required
-            className="border rounded px-3 py-2"
           />
 
           <select
@@ -164,8 +175,10 @@ export default function TradesPage() {
             onChange={(e) =>
               setForm({ ...form, quantity: Number(e.target.value) })
             }
+            className={`border rounded px-3 py-2 ${
+              errors.quantity ? "border-red-400" : ""
+            }`}
             required
-            className="border rounded px-3 py-2"
           />
 
           <input
@@ -174,8 +187,10 @@ export default function TradesPage() {
             placeholder="Entry Price"
             value={form.entry}
             onChange={(e) => setForm({ ...form, entry: Number(e.target.value) })}
+            className={`border rounded px-3 py-2 ${
+              errors.entry ? "border-red-400" : ""
+            }`}
             required
-            className="border rounded px-3 py-2"
           />
 
           <input
@@ -184,13 +199,15 @@ export default function TradesPage() {
             placeholder="Exit Price"
             value={form.exit}
             onChange={(e) => setForm({ ...form, exit: Number(e.target.value) })}
+            className={`border rounded px-3 py-2 ${
+              errors.exit ? "border-red-400" : ""
+            }`}
             required
-            className="border rounded px-3 py-2"
           />
 
-          {/* Live P/L preview */}
+          {/* P/L Preview */}
           <div className="col-span-2 p-3 rounded bg-gray-50 border text-sm">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between">
               <span className="text-gray-600">Auto P/L (preview)</span>
               <span
                 className={
@@ -205,8 +222,13 @@ export default function TradesPage() {
           </div>
 
           <button
-            className="col-span-2 bg-green-600 text-white py-2 rounded hover:bg-green-500 transition"
             type="submit"
+            disabled={!isValid}
+            className={`col-span-2 py-2 rounded transition ${
+              isValid
+                ? "bg-green-600 text-white hover:bg-green-500"
+                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
           >
             Add Trade
           </button>
@@ -235,8 +257,12 @@ export default function TradesPage() {
                 <td className="px-4 py-2 font-medium">{t.symbol}</td>
                 <td className="px-4 py-2">{t.side}</td>
                 <td className="px-4 py-2 text-right">{t.quantity}</td>
-                <td className="px-4 py-2 text-right">{t.entry.toFixed(2)}</td>
-                <td className="px-4 py-2 text-right">{t.exit.toFixed(2)}</td>
+                <td className="px-4 py-2 text-right">
+                  {t.entry.toFixed(2)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  {t.exit.toFixed(2)}
+                </td>
                 <td
                   className={`px-4 py-2 text-right font-semibold ${
                     t.profit >= 0 ? "text-green-600" : "text-red-600"
