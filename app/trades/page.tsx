@@ -64,7 +64,7 @@ export default function TradesPage() {
 
   return (
     <>
-      <NavBar />
+     
 
       <main className="min-h-screen bg-gray-50 text-gray-900 p-8">
         <div className="flex justify-between items-center mb-4">
