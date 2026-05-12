@@ -6,14 +6,15 @@ import { usePathname } from "next/navigation";
 function navLinkClass(isActive: boolean) {
   return [
     "text-sm font-medium transition-colors",
-    "text-gray-800 hover:text-blue-600",
-    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded",
-    isActive ? "text-blue-700 underline underline-offset-4" : "",
+    "px-3 py-1.5 rounded-full",
+    "text-gray-800 hover:text-blue-700 hover:bg-blue-50",
+    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+    isActive ? "bg-blue-100 text-blue-800" : "",
   ].join(" ");
 }
 
 export default function NavBar() {
-  const pathname = usePathname(); // e.g. "/", "/dashboard", "/trades" [1](https://nextjs.org/docs/app/api-reference/functions/use-pathname)
+  const pathname = usePathname(); // client hook [2](https://www.tradervue.com/blog/mfe-and-mae-calculations)
 
   const isHome = pathname === "/";
   const isDashboard = pathname === "/dashboard";
@@ -21,7 +22,7 @@ export default function NavBar() {
 
   return (
     <nav className="w-full bg-white border-b border-gray-200">
-      <div className="max-w-6xl mx-auto px-6 py-4 flex gap-6 items-center">
+      <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
         <Link href="/" className={navLinkClass(isHome)}>
           Trading Journal
         </Link>
