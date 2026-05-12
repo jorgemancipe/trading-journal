@@ -1,5 +1,4 @@
 import "./globals.css";
-import NavBar from "./components/NavBar";
 
 export default function RootLayout({
   children,
@@ -9,7 +8,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-gray-50 text-gray-900">
-        <NavBar />
         {children}
       </body>
     </html>
