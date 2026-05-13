@@ -1,4 +1,3 @@
-import { useTrades, Trade } from "../context/TradesContext";
 "use client";
 
 import { useMemo, useState } from "react";
@@ -19,7 +18,7 @@ export default function TradesPage() {
     exit: 0,
   });
 
-  // --- Live computed P/L preview (updates as you type) ---
+  // live profit preview
   const liveProfit = useMemo(() => {
     const qty = Number(form.quantity);
     const entry = Number(form.entry);
@@ -27,14 +26,10 @@ export default function TradesPage() {
 
     if (qty <= 0 || entry <= 0 || exit <= 0) return 0;
 
-    // Buy (Long): (exit - entry) * qty
-    // Sell (Short): (entry - exit) * qty
-    return form.side === "Buy"
-      ? (exit - entry) * qty
-      : (entry - exit) * qty;
+    return form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
   }, [form]);
 
-  // --- Validation rules ---
+  // validation
   const errors = {
     date: form.date === "",
     symbol: form.symbol.trim() === "",
@@ -42,10 +37,9 @@ export default function TradesPage() {
     entry: form.entry <= 0,
     exit: form.exit <= 0,
   };
-
   const isValid = !Object.values(errors).some(Boolean);
 
-  // --- Total P/L ---
+  // total P/L from shared trades
   const totalPL = useMemo(
     () => trades.reduce((sum, t) => sum + t.profit, 0),
     [trades]
@@ -60,9 +54,7 @@ export default function TradesPage() {
     const exit = Number(form.exit);
 
     const profit =
-      form.side === "Buy"
-        ? (exit - entry) * qty
-        : (entry - exit) * qty;
+      form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
 
     const newTrade: Trade = {
       id: Date.now(),
@@ -77,7 +69,6 @@ export default function TradesPage() {
 
     addTrade(newTrade);
 
-    // reset
     setForm({
       date: today,
       symbol: "",
@@ -96,18 +87,13 @@ export default function TradesPage() {
         <h1 className="text-3xl font-bold">Trades</h1>
 
         <button
-          onClick={() => {
-            // when opening form, ensure date is today if empty
-            setForm((prev) => ({ ...prev, date: prev.date || today }));
-            setShowForm((v) => !v);
-          }}
+          onClick={() => setShowForm((v) => !v)}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 transition"
         >
           New Trade
         </button>
       </div>
 
-      {/* Total P/L */}
       <div
         className={`mb-6 p-4 rounded text-lg font-semibold ${
           totalPL >= 0
@@ -118,7 +104,6 @@ export default function TradesPage() {
         Total P/L: ${totalPL.toFixed(2)}
       </div>
 
-      {/* Form */}
       {showForm && (
         <form
           onSubmit={handleSubmit}
@@ -192,7 +177,6 @@ export default function TradesPage() {
             required
           />
 
-          {/* Live P/L preview */}
           <div className="col-span-2 p-3 rounded bg-gray-50 border text-sm">
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Auto P/L (preview)</span>
@@ -222,7 +206,6 @@ export default function TradesPage() {
         </form>
       )}
 
-      {/* Table */}
       <div className="overflow-x-auto bg-white border rounded">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
