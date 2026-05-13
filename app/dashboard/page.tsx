@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
 import EquityCurve from "../components/EquityCurve";
 import WinLossChart from "../components/WinLossChart";
+import PLHistogram from "../components/PLHistogram";
 export default function DashboardPage() {
   const { trades } = useTrades();
 
@@ -60,6 +61,9 @@ export default function DashboardPage() {
   <EquityCurve trades={trades} />
   <WinLossChart trades={trades} />
 </div>
+      <div className="mt-6"><div <PLHistogram trades={trades} />
+</div>
+
       <div className="mt-8">
         <EquityCurve trades={trades} />
       </div>
