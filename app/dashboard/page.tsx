@@ -90,6 +90,8 @@ export default function DashboardPage() {
           positive={metrics.expectancy >= 0}
           negative={metrics.expectancy < 0}
         />
+        <div className="mt-8">
+          <EquityCurve trades={trades} />
       </div>
     </main>
   );
