@@ -1,5 +1,6 @@
 import "./globals.css";
-import NavBar from "./components { TradesProvider } from "./context/TradesContext";import NavBar from "./components/NavBar";
+import NavBar from "./components/NavBar";
+import { TradesProvider } from "./context/TradesContext";
 
 export default function RootLayout({
   children,
@@ -17,4 +18,3 @@ export default function RootLayout({
     </html>
   );
 }
-
