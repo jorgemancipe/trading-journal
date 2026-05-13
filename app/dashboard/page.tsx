@@ -24,7 +24,7 @@ const sampleTrades: Trade[] = [
 export default function DashboardPage() {
   const metrics = useMemo(() => {
     const totalTrades = sampleTrades.length;
-
+    const { trades } = useTrades();
     const wins = sampleTrades.filter((t) => t.profit > 0);
     const losses = sampleTrades.filter((t) => t.profit < 0);
 
