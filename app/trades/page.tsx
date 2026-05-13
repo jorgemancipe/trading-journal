@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useMemo, useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
 const { trades, addTrade, clearTrades } = useTrades();
