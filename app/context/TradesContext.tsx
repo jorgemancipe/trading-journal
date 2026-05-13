@@ -1,26 +1,76 @@
-> Build error occurred
-Error: Turbopack build failed with 1 errors:
-./app/context/TradesContext.tsx:3:1
-Expression expected
-  1 |   1 | "use client";
-  2 |   2 |
-> 3 | > 3 | import { TradesProvider } from "../context/TradesContext";
-    | ^
-  4 |     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  5 |   4 |
-  6 |   5 | export const dynamic = "force-dynamic";
-Parsing ecmascript source code failed
-Import traces:
-  Server Component:
-    ./app/context/TradesContext.tsx
-    ./app/layout.tsx
-  Client Component Browser:
-    ./app/context/TradesContext.tsx [Client Component Browser]
-    ./app/trades/page.tsx [Client Component Browser]
-    ./app/trades/page.tsx [Server Component]
-  Client Component SSR:
-    ./app/context/TradesContext.tsx [Client Component SSR]
-    ./app/trades/page.tsx [Client Component SSR]
-    ./app/trades/page.tsx [Server Component]
-    at <unknown> (./app/context/TradesContext.tsx:3:1)
-Error: Command "npm run build" exited with 1
+"use client";
+
+import { createContext, useContext, useEffect, useState } from "react";
+
+export type Trade = {
+  id: number;
+  date: string;
+  symbol: string;
+  side: "Buy" | "Sell";
+  quantity: number;
+  entry: number;
+  exit: number;
+  profit: number;
+};
+
+type TradesContextType = {
+  trades: Trade[];
+  addTrade: (trade: Trade) => void;
+  clearTrades: () => void;
+};
+
+const TradesContext = createContext<TradesContextType | null>(null);
+
+const STORAGE_KEY = "trading_journal_trades";
+
+export function TradesProvider({ children }: { children: React.ReactNode }) {
+  const [trades, setTrades] = useState<Trade[]>([]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        setTrades(JSON.parse(stored));
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trades));
+    } catch {}
+  }, [trades]);
+
+  function addTrade(trade: Trade) {
+    setTrades((prev) => [...prev, trade]);
+  }
+
+  function clearTrades() {
+    setTrades([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
+  return (
+    <TradesContext.Provider value={{ trades, addTrade, clearTrades }}>
+      {children}
+    </TradesContext.Provider>
+  );
+}
+
+/**
+ * ✅ SSR-safe hook
+ * Returns defaults during build/prerender
+ */
+export function useTrades() {
+  const context = useContext(TradesContext);
+
+  if (!context) {
+    return {
+      trades: [],
+      addTrade: () => {},
+      clearTrades: () => {},
+    };
+  }
+
+  return context;
+}
