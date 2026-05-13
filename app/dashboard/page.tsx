@@ -1,3 +1,4 @@
+import EquityCurve from "../components/EquityCurve";
 "use client";
 
 import { useMemo } from "react";
