@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
 import EquityCurve from "../components/EquityCurve";
-
+import WinLossChart from "../components/WinLossChart";
 export default function DashboardPage() {
   const { trades } = useTrades();
 
@@ -56,7 +56,10 @@ export default function DashboardPage() {
           negative={metrics.expectancy < 0}
         />
       </div>
-
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <EquityCurve trades={trades} />
+  <WinLossChart trades={trades} />
+</div>
       <div className="mt-8">
         <EquityCurve trades={trades} />
       </div>
