@@ -5,6 +5,28 @@ import { useTrades } from "../context/TradesContext";
 import EquityCurve from "../components/EquityCurve";
 import WinLossChart from "../components/WinLossChart";
 import PLHistogram from "../components/PLHistogram";
+function calculateMaxDrawdown(trades: { profit: number }[]) {
+  let equity = 0;
+  let peak = 0;
+  let maxDrawdown = 0;
+
+  for (const t of trades) {
+    equity += t.profit;
+
+    if (equity > peak) {
+      peak = equity;
+    }
+
+    const drawdown = peak - equity;
+    if (drawdown > maxDrawdown) {
+      maxDrawdown = drawdown;
+    }
+  }
+
+  return maxDrawdown;
+}
+
+
 export default function DashboardPage() {
   const { trades } = useTrades();
 
