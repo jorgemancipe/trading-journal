@@ -2,7 +2,9 @@
 
 import { createContext, useContext, useState } from "react";
 
-export type Trade string;export type Trade = {
+export type Trade = {
+  id: number;
+  date: string;
   symbol: string;
   side: "Buy" | "Sell";
   quantity: number;
@@ -52,5 +54,3 @@ export function useTrades() {
   }
   return context;
 }
-  id: number;
-
