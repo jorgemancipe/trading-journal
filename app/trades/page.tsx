@@ -1,33 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-
-type Trade = {
-  id: number;
-  date: string;
-  symbol: string;
-  side: "Buy" | "Sell";
-  quantity: number;
-  entry: number;
-  exit: number;
-  profit: number;
-};
-
-const initialTrades: Trade[] = [
-  {
-    id: 1,
-    date: "2026-05-01",
-    symbol: "AAPL",
-    side: "Buy",
-    quantity: 100,
-    entry: 172.35,
-    exit: 174.85,
-    profit: (174.85 - 172.35) * 100,
-  },
-];
+import { useTrades, Trade } from "../context/TradesContext";
 
 export default function TradesPage() {
-  const [trades, setTrades] = useState<Trade[]>(initialTrades);
+  const { trades, addTrade } = useTrades();
   const [showForm, setShowForm] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
@@ -41,7 +18,7 @@ export default function TradesPage() {
     exit: 0,
   });
 
-  // --- live profit preview ---
+  // --- Live computed P/L preview (updates as you type) ---
   const liveProfit = useMemo(() => {
     const qty = Number(form.quantity);
     const entry = Number(form.entry);
@@ -49,22 +26,25 @@ export default function TradesPage() {
 
     if (qty <= 0 || entry <= 0 || exit <= 0) return 0;
 
+    // Buy (Long): (exit - entry) * qty
+    // Sell (Short): (entry - exit) * qty
     return form.side === "Buy"
       ? (exit - entry) * qty
       : (entry - exit) * qty;
   }, [form]);
 
-  // --- validation ---
+  // --- Validation rules ---
   const errors = {
+    date: form.date === "",
     symbol: form.symbol.trim() === "",
     quantity: form.quantity <= 0,
     entry: form.entry <= 0,
     exit: form.exit <= 0,
-    date: form.date === "",
   };
 
   const isValid = !Object.values(errors).some(Boolean);
 
+  // --- Total P/L ---
   const totalPL = useMemo(
     () => trades.reduce((sum, t) => sum + t.profit, 0),
     [trades]
@@ -94,9 +74,9 @@ export default function TradesPage() {
       profit,
     };
 
-    setTrades([...trades, newTrade]);
+    addTrade(newTrade);
 
-    // reset form smartly
+    // reset
     setForm({
       date: today,
       symbol: "",
@@ -115,7 +95,11 @@ export default function TradesPage() {
         <h1 className="text-3xl font-bold">Trades</h1>
 
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => {
+            // when opening form, ensure date is today if empty
+            setForm((prev) => ({ ...prev, date: prev.date || today }));
+            setShowForm((v) => !v);
+          }}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 transition"
         >
           New Trade
@@ -125,13 +109,15 @@ export default function TradesPage() {
       {/* Total P/L */}
       <div
         className={`mb-6 p-4 rounded text-lg font-semibold ${
-          totalPL >= 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+          totalPL >= 0
+            ? "bg-green-100 text-green-700"
+            : "bg-red-100 text-red-700"
         }`}
       >
         Total P/L: ${totalPL.toFixed(2)}
       </div>
 
-      {/* New Trade Form */}
+      {/* Form */}
       {showForm && (
         <form
           onSubmit={handleSubmit}
@@ -205,9 +191,9 @@ export default function TradesPage() {
             required
           />
 
-          {/* P/L Preview */}
+          {/* Live P/L preview */}
           <div className="col-span-2 p-3 rounded bg-gray-50 border text-sm">
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-gray-600">Auto P/L (preview)</span>
               <span
                 className={
@@ -235,7 +221,7 @@ export default function TradesPage() {
         </form>
       )}
 
-      {/* Trades Table */}
+      {/* Table */}
       <div className="overflow-x-auto bg-white border rounded">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
@@ -257,12 +243,8 @@ export default function TradesPage() {
                 <td className="px-4 py-2 font-medium">{t.symbol}</td>
                 <td className="px-4 py-2">{t.side}</td>
                 <td className="px-4 py-2 text-right">{t.quantity}</td>
-                <td className="px-4 py-2 text-right">
-                  {t.entry.toFixed(2)}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  {t.exit.toFixed(2)}
-                </td>
+                <td className="px-4 py-2 text-right">{t.entry.toFixed(2)}</td>
+                <td className="px-4 py-2 text-right">{t.exit.toFixed(2)}</td>
                 <td
                   className={`px-4 py-2 text-right font-semibold ${
                     t.profit >= 0 ? "text-green-600" : "text-red-600"
