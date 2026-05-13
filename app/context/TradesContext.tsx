@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 export type Trade = {
   id: number;
@@ -16,32 +16,48 @@ export type Trade = {
 type TradesContextType = {
   trades: Trade[];
   addTrade: (trade: Trade) => void;
+  clearTrades: () => void;
 };
 
 const TradesContext = createContext<TradesContextType | null>(null);
 
-const initialTrades: Trade[] = [
-  {
-    id: 1,
-    date: "2026-05-01",
-    symbol: "AAPL",
-    side: "Buy",
-    quantity: 100,
-    entry: 172.35,
-    exit: 174.85,
-    profit: (174.85 - 172.35) * 100,
-  },
-];
+const STORAGE_KEY = "trading_journal_trades";
 
 export function TradesProvider({ children }: { children: React.ReactNode }) {
-  const [trades, setTrades] = useState<Trade[]>(initialTrades);
+  const [trades, setTrades] = useState<Trade[]>([]);
+
+  /* ✅ Load trades from localStorage on first mount */
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        setTrades(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error("Failed to load trades from localStorage", e);
+    }
+  }, []);
+
+  /* ✅ Persist trades whenever they change */
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trades));
+    } catch (e) {
+      console.error("Failed to save trades to localStorage", e);
+    }
+  }, [trades]);
 
   function addTrade(trade: Trade) {
     setTrades((prev) => [...prev, trade]);
   }
 
+  function clearTrades() {
+    setTrades([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
   return (
-    <TradesContext.Provider value={{ trades, addTrade }}>
+    <TradesContext.Provider value={{ trades, addTrade, clearTrades }}>
       {children}
     </TradesContext.Provider>
   );
