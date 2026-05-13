@@ -1,3 +1,4 @@
+import { useTrades, Trade } from "../context/TradesContext";
 "use client";
 
 import { useMemo, useState } from "react";
