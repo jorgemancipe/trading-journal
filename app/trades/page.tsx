@@ -1,11 +1,6 @@
-import dynamic from "next/dynamic";
+"use client";
 
-export const dynamic = "force-dynamic";
-
-const TradesClient = dynamic(
-  () => import("./TradesClient"),
-  { ssr: false }
-);
+import TradesClient from "./TradesClient";
 
 export default function TradesPage() {
   return <TradesClient />;
