@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
-
+const { trades, addTrade, clearTrades } = useTrades();
 export default function TradesPage() {
-  const { trades, addTrade } = useTrades();
+ 
   const [showForm, setShowForm] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
