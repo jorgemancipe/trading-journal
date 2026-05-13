@@ -61,7 +61,8 @@ export default function DashboardPage() {
   <EquityCurve trades={trades} />
   <WinLossChart trades={trades} />
 </div>
-      <div className="mt-6"><div <PLHistogram trades={trades} />
+   <div className="mt-6">
+  <PLHistogram trades={trades} />
 </div>
 
       <div className="mt-8">
