@@ -178,8 +178,7 @@ export default function TradesClient() {
     Clear All
   </button>
 </div>
-      </div>
-
+    
       {showForm && (
         <form onSubmit={submit} className="mb-4">
           <input
