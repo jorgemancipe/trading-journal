@@ -3,34 +3,63 @@
 import { useMemo, useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
 
-function exportTradesToCSV(trades: Trade[]) {
-  if (!trades || trades.length === 0) return;
+/** Timestamp like 2026-05-14_14-33-07 (local time) */
+function timestampString() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+}
 
-  const headers = ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"];
+/** RFC4180-ish CSV escaping: wrap in quotes, escape quotes, preserve commas/newlines */
+function csvCell(value: unknown) {
+  if (value === null || value === undefined) return '""';
+  const s = String(value).replace(/"/g, '""');
+  return `"${s}"`;
+}
 
-  const rows = trades.map((t) => [
-    t.date,
-    t.symbol,
-    t.side,
-    String(t.quantity),
-    String(t.entry),
-    String(t.exit),
-    t.profit.toFixed(2),
-  ]);
+function buildCSV(rows: unknown[][]) {
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
 
-  const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
-
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+function downloadCSV(csvText: string, filename: string) {
+  const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
 
   const link = document.createElement("a");
   link.href = url;
-  link.download = "trades.csv";
+  link.download = filename;
+
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
 
   URL.revokeObjectURL(url);
+}
+
+function exportTradesToCSV(trades: Trade[]) {
+  if (!trades || trades.length === 0) return;
+
+  const rows: unknown[][] = [
+    ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"],
+    ...trades.map((t) => [
+      t.date,
+      t.symbol,
+      t.side,
+      t.quantity,
+      t.entry,
+      t.exit,
+      t.profit.toFixed(2),
+    ]),
+  ];
+
+  const csv = buildCSV(rows);
+  downloadCSV(csv, `trades-${timestampString()}.csv`);
 }
 
 export default function TradesClient() {
@@ -70,7 +99,8 @@ export default function TradesClient() {
 
     if (!form.date || !symbol || qty <= 0 || entry <= 0 || exit <= 0) return;
 
-    const profit = form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
+    const profit =
+      form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
 
     const newTrade: Trade = {
       id: Date.now(),
@@ -102,7 +132,7 @@ export default function TradesClient() {
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-3xl font-bold">Trades</h1>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setShowForm((v) => !v)}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 transition"
@@ -113,6 +143,8 @@ export default function TradesClient() {
           <button
             onClick={() => exportTradesToCSV(trades)}
             className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
+            disabled={!trades || trades.length === 0}
+            title={!trades || trades.length === 0 ? "No trades to export" : "Export trades CSV"}
           >
             Export CSV
           </button>
@@ -149,7 +181,9 @@ export default function TradesClient() {
 
           <select
             value={form.side}
-            onChange={(e) => setForm({ ...form, side: e.target.value as "Buy" | "Sell" })}
+            onChange={(e) =>
+              setForm({ ...form, side: e.target.value as "Buy" | "Sell" })
+            }
             className="border rounded px-3 py-2"
           >
             <option value="Buy">Buy (Long)</option>
@@ -160,7 +194,9 @@ export default function TradesClient() {
             type="number"
             placeholder="Quantity"
             value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+            onChange={(e) =>
+              setForm({ ...form, quantity: Number(e.target.value) })
+            }
             className="border rounded px-3 py-2"
             required
           />
@@ -188,7 +224,13 @@ export default function TradesClient() {
           <div className="col-span-2 p-3 rounded bg-gray-50 border text-sm">
             <div className="flex justify-between items-center">
               <span className="text-gray-600">P/L Preview</span>
-              <span className={liveProfit >= 0 ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}>
+              <span
+                className={
+                  liveProfit >= 0
+                    ? "text-green-700 font-semibold"
+                    : "text-red-700 font-semibold"
+                }
+              >
                 ${liveProfit.toFixed(2)}
               </span>
             </div>
@@ -226,7 +268,11 @@ export default function TradesClient() {
                 <td className="px-4 py-2 text-right">{t.quantity}</td>
                 <td className="px-4 py-2 text-right">{t.entry.toFixed(2)}</td>
                 <td className="px-4 py-2 text-right">{t.exit.toFixed(2)}</td>
-                <td className={`px-4 py-2 text-right font-semibold ${t.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                <td
+                  className={`px-4 py-2 text-right font-semibold ${
+                    t.profit >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
                   {t.profit.toFixed(2)}
                 </td>
               </tr>
