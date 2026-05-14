@@ -1,5 +1,6 @@
 "use client";"use";
 import { useMemo, useState } from "react";
+import { useTrades } from "../context/TradesContext";
 
 /* ---------- session helpers ---------- */
 
