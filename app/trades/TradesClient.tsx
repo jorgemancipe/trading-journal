@@ -139,27 +139,45 @@ export default function TradesClient() {
 
   return (
     <main className="p-8 bg-gray-50 min-h-screen">
-      <div className="flex gap-2 mb-4">
-        <button onClick={() => setShowForm(!showForm)}>New Trade</button>
-        <button onClick={() => exportTradesCSV(trades, "trades")}>
-          Export All
-        </button>
-        <button
-          onClick={() =>
-            exportTradesCSV(filteredTrades, "filtered-trades", {
-              Symbol: symbolFilter || "All",
-              Side: sideFilter,
-              Outcome: outcomeFilter,
-              "Date From": dateFrom || "All",
-              "Date To": dateTo || "All",
-              "Filtered Trades": filteredTrades.length,
-              "Filtered P/L": filteredPL.toFixed(2),
-            })
-          }
-        >
-          Export Filtered
-        </button>
-        <button onClick={clearTrades}>Clear</button>
+      <div className="flex gap-2 mb-4 flex-wrap">
+  <button
+    onClick={() => setShowForm(!showForm)}
+    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
+  >
+    New Trade
+  </button>
+
+  <button
+    onClick={() => exportTradesCSV(trades, "trades")}
+    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500"
+  >
+    Export All CSV
+  </button>
+
+  <button
+    onClick={() =>
+      exportTradesCSV(filteredTrades, "filtered-trades", {
+        Symbol: symbolFilter || "All",
+        Side: sideFilter,
+        Outcome: outcomeFilter,
+        "Date From": dateFrom || "All",
+        "Date To": dateTo || "All",
+        "Filtered Trades": filteredTrades.length,
+        "Filtered P/L": filteredPL.toFixed(2),
+      })
+    }
+    className="px-4 py-2 bg-emerald-700 text-white rounded hover:bg-emerald-600"
+  >
+    Export Filtered CSV
+  </button>
+
+  <button
+    onClick={clearTrades}
+    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500"
+  >
+    Clear All
+  </button>
+</div>
       </div>
 
       {showForm && (
