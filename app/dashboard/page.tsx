@@ -91,9 +91,7 @@ export default function DashboardPage() {
       totalTrades === 0 ? 0 : (wins.length / totalTrades) * 100;
 
     const avgWin =
-      wins.length === 0
-        ? 0
-        : grossProfit / wins.length;
+      wins.length === 0 ? 0 : grossProfit / wins.length;
 
     const avgLoss =
       losses.length === 0
@@ -105,6 +103,14 @@ export default function DashboardPage() {
         ? 0
         : (winRate / 100) * avgWin +
           ((100 - winRate) / 100) * avgLoss;
+
+    const largestWin =
+      wins.length === 0 ? 0 : Math.max(...wins.map((t) => t.profit));
+
+    const largestLoss =
+      losses.length === 0
+        ? 0
+        : Math.min(...losses.map((t) => t.profit));
 
     const maxDrawdown = calculateMaxDrawdown(filteredTrades);
     const filteredPL = filteredTrades.reduce(
@@ -118,13 +124,15 @@ export default function DashboardPage() {
       avgWin,
       avgLoss,
       expectancy,
-      maxDrawdown,
       profitFactor,
+      largestWin,
+      largestLoss,
+      maxDrawdown,
       filteredPL,
     };
   }, [filteredTrades]);
 
-  /* ================= EXPORTS ================= */
+  /* ================= EXPORT ================= */
 
   function exportMetricsCSV() {
     const rows: unknown[][] = [
@@ -139,7 +147,14 @@ export default function DashboardPage() {
       ["Metric", "Value"],
       ["Total Trades", metrics.totalTrades],
       ["Win Rate (%)", metrics.winRate.toFixed(2)],
-      ["Profit Factor", metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)],
+      [
+        "Profit Factor",
+        metrics.profitFactor === Infinity
+          ? "∞"
+          : metrics.profitFactor.toFixed(2),
+      ],
+      ["Largest Win", metrics.largestWin.toFixed(2)],
+      ["Largest Loss", metrics.largestLoss.toFixed(2)],
       ["Average Win", metrics.avgWin.toFixed(2)],
       ["Average Loss", metrics.avgLoss.toFixed(2)],
       ["Expectancy", metrics.expectancy.toFixed(2)],
@@ -191,23 +206,31 @@ export default function DashboardPage() {
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 gap-4">
         <Metric label="Total Trades" value={metrics.totalTrades} />
         <Metric label="Win Rate" value={`${metrics.winRate.toFixed(1)}%`} />
         <Metric
           label="Profit Factor"
-          value={metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)}
+          value={
+            metrics.profitFactor === Infinity
+              ? "∞"
+              : metrics.profitFactor.toFixed(2)
+          }
           positive={metrics.profitFactor >= 1}
           negative={metrics.profitFactor < 1}
         />
+        <Metric
+          label="Largest Win"
+          value={`$${metrics.largestWin.toFixed(2)}`}
+          positive
+        />
+        <Metric
+          label="Largest Loss"
+          value={`$${metrics.largestLoss.toFixed(2)}`}
+          negative
+        />
         <Metric label="Avg Win" value={`$${metrics.avgWin.toFixed(2)}`} positive />
         <Metric label="Avg Loss" value={`$${metrics.avgLoss.toFixed(2)}`} negative />
-        <Metric
-          label="Expectancy"
-          value={`$${metrics.expectancy.toFixed(2)}`}
-          positive={metrics.expectancy >= 0}
-          negative={metrics.expectancy < 0}
-        />
         <Metric
           label="Max Drawdown"
           value={`-$${metrics.maxDrawdown.toFixed(2)}`}
