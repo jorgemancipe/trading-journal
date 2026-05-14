@@ -3,51 +3,39 @@
 import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
-/* ───────────────── CSV HELPERS ───────────────── */
-
-function timestampString() {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
-    d.getDate()
-  )}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
-}
-
-/* ───────────────── METRIC HELPERS ───────────────── */
+/* ───────────────── HELPERS ───────────────── */
 
 function calculateMaxDrawdown(trades: { profit: number }[]) {
   let equity = 0;
   let peak = 0;
   let maxDD = 0;
-
   for (const t of trades) {
     equity += t.profit;
     peak = Math.max(peak, equity);
     maxDD = Math.max(maxDD, peak - equity);
   }
-
   return maxDD;
 }
 
 function calculateStreaks(trades: { profit: number }[]) {
-  let win = 0;
-  let loss = 0;
+  let winStreak = 0;
+  let lossStreak = 0;
   let maxWin = 0;
   let maxLoss = 0;
 
   for (const t of trades) {
     if (t.profit > 0) {
-      win++;
-      loss = 0;
+      winStreak++;
+      lossStreak = 0;
     } else if (t.profit < 0) {
-      loss++;
-      win = 0;
+      lossStreak++;
+      winStreak = 0;
     } else {
-      win = 0;
-      loss = 0;
+      winStreak = 0;
+      lossStreak = 0;
     }
-    maxWin = Math.max(maxWin, win);
-    maxLoss = Math.max(maxLoss, loss);
+    maxWin = Math.max(maxWin, winStreak);
+    maxLoss = Math.max(maxLoss, lossStreak);
   }
 
   return { maxWin, maxLoss };
@@ -69,7 +57,7 @@ function buildRDistribution(rs: number[]) {
   }));
 }
 
-/* ───────────────── COMPONENT ───────────────── */
+/* ───────────────── PAGE ───────────────── */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
@@ -79,9 +67,9 @@ export default function DashboardPage() {
 
   const filteredTrades = useMemo(() => {
     return trades.filter((t) => {
+      if (t.risk <= 0) return false;
       if (dateFrom && t.date < dateFrom) return false;
       if (dateTo && t.date > dateTo) return false;
-      if (t.risk <= 0) return false;
       return true;
     });
   }, [trades, dateFrom, dateTo]);
@@ -104,12 +92,18 @@ export default function DashboardPage() {
 
     const avgR = rs.length ? rs.reduce((s, r) => s + r, 0) / rs.length : 0;
 
+    const largestRWin =
+      rs.length > 0 ? Math.max(...rs) : 0;
+
+    const largestRLoss =
+      rs.length > 0 ? Math.min(...rs) : 0;
+
     return {
-      totalTrades: filteredTrades.length,
+      trades: filteredTrades.length,
       profitFactor,
       avgR,
-      largestWin: wins.length ? Math.max(...wins.map((t) => t.profit)) : 0,
-      largestLoss: losses.length ? Math.min(...losses.map((t) => t.profit)) : 0,
+      largestRWin,
+      largestRLoss,
       maxDrawdown: calculateMaxDrawdown(filteredTrades),
       streaks: calculateStreaks(filteredTrades),
       rDist: buildRDistribution(rs),
@@ -143,11 +137,15 @@ export default function DashboardPage() {
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-        <Metric label="Trades" value={metrics.totalTrades} />
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+        <Metric label="Trades" value={metrics.trades} />
         <Metric
           label="Profit Factor"
-          value={metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)}
+          value={
+            metrics.profitFactor === Infinity
+              ? "∞"
+              : metrics.profitFactor.toFixed(2)
+          }
           positive={metrics.profitFactor >= 1}
           negative={metrics.profitFactor < 1}
         />
@@ -157,8 +155,21 @@ export default function DashboardPage() {
           positive={metrics.avgR >= 0}
           negative={metrics.avgR < 0}
         />
-        <Metric label="Win Streak" value={metrics.streaks.maxWin} positive />
-        <Metric label="Loss Streak" value={metrics.streaks.maxLoss} negative />
+        <Metric
+          label="Largest R Win"
+          value={metrics.largestRWin.toFixed(2)}
+          positive
+        />
+        <Metric
+          label="Largest R Loss"
+          value={metrics.largestRLoss.toFixed(2)}
+          negative
+        />
+        <Metric
+          label="Max Drawdown"
+          value={`$${metrics.maxDrawdown.toFixed(2)}`}
+          negative
+        />
       </div>
 
       {/* R Distribution */}
