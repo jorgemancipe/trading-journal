@@ -1,11 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { use
-
+import { useTrades } from "../context/TradesContext";
 
 type Session = "Open" | "Midday" | "Power Hour";
-
 /* ---------- helpers ---------- */
 
 function getSessionFromDate(dateStr: string): Session | null {
