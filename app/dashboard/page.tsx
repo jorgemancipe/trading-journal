@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
-/* ───────────────── HELPERS ───────────────── */
+/* ───────────── helpers ───────────── */
 
 function calculateMaxDrawdown(trades: { profit: number }[]) {
   let equity = 0;
@@ -18,24 +18,24 @@ function calculateMaxDrawdown(trades: { profit: number }[]) {
 }
 
 function calculateStreaks(trades: { profit: number }[]) {
-  let winStreak = 0;
-  let lossStreak = 0;
+  let win = 0;
+  let loss = 0;
   let maxWin = 0;
   let maxLoss = 0;
 
   for (const t of trades) {
     if (t.profit > 0) {
-      winStreak++;
-      lossStreak = 0;
+      win++;
+      loss = 0;
     } else if (t.profit < 0) {
-      lossStreak++;
-      winStreak = 0;
+      loss++;
+      win = 0;
     } else {
-      winStreak = 0;
-      lossStreak = 0;
+      win = 0;
+      loss = 0;
     }
-    maxWin = Math.max(maxWin, winStreak);
-    maxLoss = Math.max(maxLoss, lossStreak);
+    maxWin = Math.max(maxWin, win);
+    maxLoss = Math.max(maxLoss, loss);
   }
 
   return { maxWin, maxLoss };
@@ -57,7 +57,7 @@ function buildRDistribution(rs: number[]) {
   }));
 }
 
-/* ───────────────── PAGE ───────────────── */
+/* ───────────── page ───────────── */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
@@ -76,7 +76,6 @@ export default function DashboardPage() {
 
   const metrics = useMemo(() => {
     const rs = filteredTrades.map((t) => t.profit / t.risk);
-
     const wins = filteredTrades.filter((t) => t.profit > 0);
     const losses = filteredTrades.filter((t) => t.profit < 0);
 
@@ -92,22 +91,39 @@ export default function DashboardPage() {
 
     const avgR = rs.length ? rs.reduce((s, r) => s + r, 0) / rs.length : 0;
 
-    const largestRWin =
-      rs.length > 0 ? Math.max(...rs) : 0;
-
-    const largestRLoss =
-      rs.length > 0 ? Math.min(...rs) : 0;
-
     return {
       trades: filteredTrades.length,
       profitFactor,
       avgR,
-      largestRWin,
-      largestRLoss,
-      maxDrawdown: calculateMaxDrawdown(filteredTrades),
+      largestRWin: rs.length ? Math.max(...rs) : 0,
+      largestRLoss: rs.length ? Math.min(...rs) : 0,
       streaks: calculateStreaks(filteredTrades),
+      maxDrawdown: calculateMaxDrawdown(filteredTrades),
       rDist: buildRDistribution(rs),
     };
+  }, [filteredTrades]);
+
+  const rBySymbol = useMemo(() => {
+    const map = new Map<
+      string,
+      { totalR: number; count: number }
+    >();
+
+    for (const t of filteredTrades) {
+      const r = t.profit / t.risk;
+      const entry = map.get(t.symbol) ?? { totalR: 0, count: 0 };
+      entry.totalR += r;
+      entry.count += 1;
+      map.set(t.symbol, entry);
+    }
+
+    return Array.from(map.entries())
+      .map(([symbol, v]) => ({
+        symbol,
+        avgR: v.totalR / v.count,
+        trades: v.count,
+      }))
+      .sort((a, b) => b.avgR - a.avgR);
   }, [filteredTrades]);
 
   return (
@@ -136,7 +152,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Metrics */}
+      {/* Top Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
         <Metric label="Trades" value={metrics.trades} />
         <Metric
@@ -172,6 +188,48 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* R Expectancy by Symbol */}
+      <div className="bg-white border rounded p-4 mb-8">
+        <h2 className="text-lg font-semibold mb-4">
+          R Expectancy by Symbol
+        </h2>
+
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="px-4 py-2 text-left">Symbol</th>
+              <th className="px-4 py-2 text-right">Avg R</th>
+              <th className="px-4 py-2 text-right">Trades</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rBySymbol.map((s) => (
+              <tr key={s.symbol} className="border-t">
+                <td className="px-4 py-2 font-medium">{s.symbol}</td>
+                <td
+                  className={`px-4 py-2 text-right font-semibold ${
+                    s.avgR >= 0 ? "text-green-700" : "text-red-700"
+                  }`}
+                >
+                  {s.avgR.toFixed(2)}
+                </td>
+                <td className="px-4 py-2 text-right">{s.trades}</td>
+              </tr>
+            ))}
+            {rBySymbol.length === 0 && (
+              <tr>
+                <td
+                  colSpan={3}
+                  className="px-4 py-4 text-center text-gray-500"
+                >
+                  No trades in range.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
       {/* R Distribution */}
       <div className="bg-white border rounded p-4">
         <h2 className="text-lg font-semibold mb-4">R Distribution</h2>
@@ -179,45 +237,3 @@ export default function DashboardPage() {
           {metrics.rDist.map((b) => (
             <div key={b.label} className="flex flex-col items-center w-16">
               <div
-                className="bg-blue-600 w-full"
-                style={{
-                  height: `${b.count * 20}px`,
-                  minHeight: b.count > 0 ? 8 : 0,
-                }}
-              />
-              <div className="text-xs mt-2 text-center">{b.label}</div>
-              <div className="text-xs text-gray-500">{b.count}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </main>
-  );
-}
-
-/* ───────────────── METRIC CARD ───────────────── */
-
-function Metric({
-  label,
-  value,
-  positive,
-  negative,
-}: {
-  label: string;
-  value: string | number;
-  positive?: boolean;
-  negative?: boolean;
-}) {
-  return (
-    <div className="bg-white border rounded p-4">
-      <div className="text-sm text-gray-500">{label}</div>
-      <div
-        className={`text-2xl font-semibold ${
-          positive ? "text-green-700" : negative ? "text-red-700" : ""
-        }`}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
