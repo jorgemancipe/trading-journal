@@ -3,64 +3,55 @@
 import { useMemo, useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
 
-/** Timestamp like 2026-05-14_14-33-07 (local time) */
+/* ---------- CSV helpers ---------- */
+
 function timestampString() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const mm = pad(d.getMonth() + 1);
-  const dd = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mi = pad(d.getMinutes());
-  const ss = pad(d.getSeconds());
-  return `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+    d.getDate()
+  )}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 }
 
-/** RFC4180-ish CSV escaping */
-function csvCell(value: unknown) {
-  if (value === null || value === undefined) return '""';
-  const s = String(value).replace(/"/g, '""');
-  return `"${s}"`;
+function csvCell(v: unknown) {
+  if (v === null || v === undefined) return '""';
+  return `"${String(v).replace(/"/g, '""')}"`;
 }
 
 function buildCSV(rows: unknown[][]) {
-  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  return rows.map((r) => r.map(csvCell).join(",")).join("\n");
 }
 
-function downloadCSV(csvText: string, filename: string) {
-  const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+function downloadCSV(text: string, filename: string) {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
 function exportTradesCSV(
-  list: Trade[],
-  filenamePrefix: string,
+  trades: Trade[],
+  prefix: string,
   summary?: Record<string, string | number>
 ) {
-  if (!list || list.length === 0) return;
+  if (!trades.length) return;
 
-  const summaryRows: unknown[][] = [];
+  const rows: unknown[][] = [];
+
   if (summary) {
-    summaryRows.push(["Filter Summary", ""]);
-    for (const [k, v] of Object.entries(summary)) {
-      summaryRows.push([k, v]);
-    }
-    summaryRows.push(["", ""]); // spacer
+    rows.push(["Filter Summary", ""]);
+    Object.entries(summary).forEach(([k, v]) => rows.push([k, v]));
+    rows.push(["", ""]);
   }
 
-  const dataRows: unknown[][] = [
-    ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"],
-    ...list.map((t) => [
+  rows.push(["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"]);
+  trades.forEach((t) =>
+    rows.push([
       t.date,
       t.symbol,
       t.side,
@@ -68,12 +59,13 @@ function exportTradesCSV(
       t.entry.toFixed(2),
       t.exit.toFixed(2),
       t.profit.toFixed(2),
-    ]),
-  ];
+    ])
+  );
 
-  const csv = buildCSV([...summaryRows, ...dataRows]);
-  downloadCSV(csv, `${filenamePrefix}-${timestampString()}.csv`);
+  downloadCSV(buildCSV(rows), `${prefix}-${timestampString()}.csv`);
 }
+
+/* ---------- Component ---------- */
 
 type SideFilter = "All" | "Buy" | "Sell";
 type OutcomeFilter = "All" | "Wins" | "Losses" | "Breakeven";
@@ -81,10 +73,9 @@ type OutcomeFilter = "All" | "Wins" | "Losses" | "Breakeven";
 export default function TradesClient() {
   const { trades, addTrade, clearTrades } = useTrades();
 
-  // Form state
   const [showForm, setShowForm] = useState(false);
-  const today = new Date().toISOString().split("T")[0];
 
+  const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     date: today,
     symbol: "",
@@ -94,317 +85,112 @@ export default function TradesClient() {
     exit: 0,
   });
 
-  // Filter state
   const [symbolFilter, setSymbolFilter] = useState("");
   const [sideFilter, setSideFilter] = useState<SideFilter>("All");
-  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("All");
+  const [outcomeFilter, setOutcomeFilter] =
+    useState<OutcomeFilter>("All");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-
-  const liveProfit = useMemo(() => {
-    const qty = Number(form.quantity);
-    const entry = Number(form.entry);
-    const exit = Number(form.exit);
-    if (qty <= 0 || entry <= 0 || exit <= 0) return 0;
-    return form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
-  }, [form]);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    const symbol = form.symbol.trim().toUpperCase();
-    const qty = Number(form.quantity);
-    const entry = Number(form.entry);
-    const exit = Number(form.exit);
-
-    if (!form.date || !symbol || qty <= 0 || entry <= 0 || exit <= 0) return;
-
-    const profit =
-      form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
-
-    const newTrade: Trade = {
-      id: Date.now(),
-      date: form.date,
-      symbol,
-      side: form.side,
-      quantity: qty,
-      entry,
-      exit,
-      profit,
-    };
-
-    addTrade(newTrade);
-
-    setForm({
-      date: today,
-      symbol: "",
-      side: "Buy",
-      quantity: 0,
-      entry: 0,
-      exit: 0,
-    });
-
-    setShowForm(false);
-  }
 
   const filteredTrades = useMemo(() => {
     const sym = symbolFilter.trim().toUpperCase();
     return trades.filter((t) => {
       if (sym && !t.symbol.includes(sym)) return false;
       if (sideFilter !== "All" && t.side !== sideFilter) return false;
-
-      if (outcomeFilter === "Wins" && !(t.profit > 0)) return false;
-      if (outcomeFilter === "Losses" && !(t.profit < 0)) return false;
-      if (outcomeFilter === "Breakeven" && !(t.profit === 0)) return false;
-
+      if (outcomeFilter === "Wins" && t.profit <= 0) return false;
+      if (outcomeFilter === "Losses" && t.profit >= 0) return false;
+      if (outcomeFilter === "Breakeven" && t.profit !== 0) return false;
       if (dateFrom && t.date < dateFrom) return false;
       if (dateTo && t.date > dateTo) return false;
-
       return true;
     });
-  }, [trades, symbolFilter, sideFilter, outcomeFilter, dateFrom, dateTo]);
+  }, [
+    trades,
+    symbolFilter,
+    sideFilter,
+    outcomeFilter,
+    dateFrom,
+    dateTo,
+  ]);
 
-  const filteredPL = useMemo(
-    () => filteredTrades.reduce((sum, t) => sum + t.profit, 0),
-    [filteredTrades]
-  );
+  const filteredPL = filteredTrades.reduce((s, t) => s + t.profit, 0);
 
-  function resetFilters() {
-    setSymbolFilter("");
-    setSideFilter("All");
-    setOutcomeFilter("All");
-    setDateFrom("");
-    setDateTo("");
-  }
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const profit =
+      form.side === "Buy"
+        ? (form.exit - form.entry) * form.quantity
+        : (form.entry - form.exit) * form.quantity;
 
-  function exportAll() {
-    exportTradesCSV(trades, "trades");
-  }
-
-  function exportFiltered() {
-    exportTradesCSV(filteredTrades, "filtered-trades", {
-      Symbol: symbolFilter.trim() ? symbolFilter.trim().toUpperCase() : "All",
-      Side: sideFilter,
-      Outcome: outcomeFilter,
-      "Date From": dateFrom || "All",
-      "Date To": dateTo || "All",
-      "Filtered Trades": filteredTrades.length,
-      "Filtered P/L": filteredPL.toFixed(2),
-      "Exported At": timestampString(),
+    addTrade({
+      id: Date.now(),
+      date: form.date,
+      symbol: form.symbol.toUpperCase(),
+      side: form.side,
+      quantity: form.quantity,
+      entry: form.entry,
+      exit: form.exit,
+      profit,
     });
+
+    setShowForm(false);
+    setForm({ ...form, symbol: "", quantity: 0, entry: 0, exit: 0 });
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 text-gray-900 p-8">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-3xl font-bold">Trades</h1>
-
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 transition"
-          >
-            New Trade
-          </button>
-
-          <button
-            onClick={exportAll}
-            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
-            disabled={trades.length === 0}
-            title={trades.length === 0 ? "No trades to export" : "Export all trades"}
-          >
-            Export All CSV
-          </button>
-
-          <button
-            onClick={exportFiltered}
-            className="px-4 py-2 bg-emerald-700 text-white rounded hover:bg-emerald-600 transition"
-            disabled={filteredTrades.length === 0}
-            title={
-              filteredTrades.length === 0
-                ? "No filtered trades to export"
-                : "Export filtered trades with summary"
-            }
-          >
-            Export Filtered CSV
-          </button>
-
-          <button
-            onClick={clearTrades}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500 transition"
-          >
-            Clear All
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="mb-4 bg-white border rounded p-4">
-        <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-600 mb-1">Symbol</label>
-            <input
-              value={symbolFilter}
-              onChange={(e) => setSymbolFilter(e.target.value)}
-              placeholder="e.g. AAPL"
-              className="border rounded px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-600 mb-1">Side</label>
-            <select
-              value={sideFilter}
-              onChange={(e) => setSideFilter(e.target.value as SideFilter)}
-              className="border rounded px-3 py-2 text-sm"
-            >
-              <option value="All">All</option>
-              <option value="Buy">Buy (Long)</option>
-              <option value="Sell">Sell (Short)</option>
-            </select>
-          </div>
-
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-600 mb-1">Outcome</label>
-            <select
-              value={outcomeFilter}
-              onChange={(e) => setOutcomeFilter(e.target.value as OutcomeFilter)}
-              className="border rounded px-3 py-2 text-sm"
-            >
-              <option value="All">All</option>
-              <option value="Wins">Wins</option>
-              <option value="Losses">Losses</option>
-              <option value="Breakeven">Break-even</option>
-            </select>
-          </div>
-
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-600 mb-1">Date From</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="border rounded px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-600 mb-1">Date To</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="border rounded px-3 py-2 text-sm"
-            />
-          </div>
-
-          <button
-            onClick={resetFilters}
-            className="px-4 py-2 bg-gray-200 text-gray-900 rounded hover:bg-gray-300 transition text-sm"
-          >
-            Reset Filters
-          </button>
-
-          <div className="ml-auto text-sm text-gray-700">
-            Showing <span className="font-semibold">{filteredTrades.length}</span>{" "}
-            of <span className="font-semibold">{trades.length}</span> trades •
-            Filtered P/L:{" "}
-            <span
-              className={
-                filteredPL >= 0
-                  ? "text-green-700 font-semibold"
-                  : "text-red-700 font-semibold"
-              }
-            >
-              ${filteredPL.toFixed(2)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* New Trade Form */}
-      {showForm && (
-        <form
-          onSubmit={handleSubmit}
-          className="mb-6 bg-white p-4 rounded border grid grid-cols-2 gap-4"
+    <main className="p-8 bg-gray-50 min-h-screen">
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setShowForm(!showForm)}>New Trade</button>
+        <button onClick={() => exportTradesCSV(trades, "trades")}>
+          Export All
+        </button>
+        <button
+          onClick={() =>
+            exportTradesCSV(filteredTrades, "filtered-trades", {
+              Symbol: symbolFilter || "All",
+              Side: sideFilter,
+              Outcome: outcomeFilter,
+              "Date From": dateFrom || "All",
+              "Date To": dateTo || "All",
+              "Filtered Trades": filteredTrades.length,
+              "Filtered P/L": filteredPL.toFixed(2),
+            })
+          }
         >
-          <input
-            type="date"
-            value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-            className="border rounded px-3 py-2"
-            required
-          />
+          Export Filtered
+        </button>
+        <button onClick={clearTrades}>Clear</button>
+      </div>
 
+      {showForm && (
+        <form onSubmit={submit} className="mb-4">
           <input
-            placeholder="Symbol (e.g. AAPL)"
             value={form.symbol}
             onChange={(e) => setForm({ ...form, symbol: e.target.value })}
-            className="border rounded px-3 py-2"
-            required
+            placeholder="Symbol"
           />
-
-          <select
-            value={form.side}
-            onChange={(e) =>
-              setForm({ ...form, side: e.target.value as "Buy" | "Sell" })
-            }
-            className="border rounded px-3 py-2"
-          >
-            <option value="Buy">Buy (Long)</option>
-            <option value="Sell">Sell (Short)</option>
-          </select>
-
-          <input
-            type="number"
-            placeholder="Quantity"
-            value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
-            className="border rounded px-3 py-2"
-            required
-          />
-
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Entry Price"
-            value={form.entry}
-            onChange={(e) => setForm({ ...form, entry: Number(e.target.value) })}
-            className="border rounded px-3 py-2"
-            required
-          />
-
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Exit Price"
-            value={form.exit}
-            onChange={(e) => setForm({ ...form, exit: Number(e.target.value) })}
-            className="border rounded px-3 py-2"
-            required
-          />
-
-          <div className="col-span-2 p-3 rounded bg-gray-50 border text-sm">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">P/L Preview</span>
-              <span
-                className={
-                  liveProfit >= 0
-                    ? "text-green-700 font-semibold"
-                    : "text-red-700 font-semibold"
-                }
-              >
-                ${liveProfit.toFixed(2)}
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="col-span-2 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
-          >
-            Add Trade
-          </button>
+          <button type="submit">Add Trade</button>
         </form>
       )}
 
+      <table className="min-w-full bg-white border">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Symbol</th>
+            <th>P/L</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredTrades.map((t) => (
+            <tr key={t.id}>
+              <td>{t.date}</td>
+              <td>{t.symbol}</td>
+              <td>{t.profit.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </main>
+  );
+}
