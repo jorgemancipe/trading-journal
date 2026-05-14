@@ -3,6 +3,18 @@
 import { useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
 
+const STRATEGY_PRESETS = [
+  "ORB (Opening Range Breakout)",
+  "VWAP Reversion/Trend",
+  "9 EMA Pullback",
+  "Premarket Levels (PMH/PML)",
+  "Yesterday Levels (YH/YL/Close)",
+  "Camarilla Levels",
+  "Volume Confirmation",
+  "Level 2 Confirmation",
+  "Custom…",
+] as const;
+
 export default function TradesClient() {
   const { trades, addTrade, clearTrades } = useTrades();
   const today = new Date().toISOString().slice(0, 10);
@@ -10,20 +22,23 @@ export default function TradesClient() {
   const [form, setForm] = useState({
     date: today,
     symbol: "",
-    strategy: "", // ✅ NEW field for required Trade.strategy
     side: "Buy" as "Buy" | "Sell",
     quantity: 0,
     entry: 0,
     exit: 0,
     risk: 0,
+
+    // ✅ dropdown-driven strategy
+    strategyPreset: STRATEGY_PRESETS[0],
+    customStrategy: "",
   });
+
+  const isCustom = form.strategyPreset === "Custom…";
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
 
     const symbol = form.symbol.trim().toUpperCase();
-    const strategy = (form.strategy || "Unassigned").trim();
-
     if (!symbol) return;
     if (form.quantity <= 0 || form.entry <= 0 || form.exit <= 0) return;
     if (form.risk <= 0) return;
@@ -33,32 +48,35 @@ export default function TradesClient() {
         ? (form.exit - form.entry) * form.quantity
         : (form.entry - form.exit) * form.quantity;
 
+    const chosenStrategy = isCustom
+      ? form.customStrategy.trim()
+      : form.strategyPreset;
+
     const trade: Trade = {
       id: Date.now(),
       date: form.date,
       symbol,
-      strategy, // ✅ REQUIRED — fixes your build error
       side: form.side,
       quantity: form.quantity,
       entry: form.entry,
       exit: form.exit,
       profit,
       risk: form.risk,
+      strategy: chosenStrategy || "Unassigned", // ✅ always satisfies Trade.strategy
     };
 
     addTrade(trade);
 
-    // reset (keep date)
-    setForm({
-      date: today,
+    setForm((prev) => ({
+      ...prev,
       symbol: "",
-      strategy: "",
-      side: "Buy",
       quantity: 0,
       entry: 0,
       exit: 0,
       risk: 0,
-    });
+      customStrategy: "",
+      // keep preset as-is so you can rapidly enter multiple trades of same setup
+    }));
   }
 
   return (
@@ -94,12 +112,34 @@ export default function TradesClient() {
           required
         />
 
-        <input
-          placeholder='Strategy (e.g. "ORB", "VWAP")'
-          value={form.strategy}
-          onChange={(e) => setForm({ ...form, strategy: e.target.value })}
+        {/* ✅ Strategy dropdown (presets derived from your ORB trading plan doc) */}
+        <select
+          value={form.strategyPreset}
+          onChange={(e) =>
+            setForm({ ...form, strategyPreset: e.target.value as any })
+          }
           className="border rounded px-3 py-2"
-        />
+        >
+          {STRATEGY_PRESETS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+
+        {/* ✅ Only show custom input if Custom… is selected */}
+        {isCustom ? (
+          <input
+            placeholder='Custom Strategy (e.g. "ABC Setup")'
+            value={form.customStrategy}
+            onChange={(e) => setForm({ ...form, customStrategy: e.target.value })}
+            className="border rounded px-3 py-2"
+          />
+        ) : (
+          <div className="text-sm text-gray-500 flex items-center px-2">
+            Preset selected
+          </div>
+        )}
 
         <select
           value={form.side}
@@ -159,6 +199,7 @@ export default function TradesClient() {
         </button>
       </form>
 
+      {/* Simple table showing strategy & R for quick verification */}
       <div className="bg-white border rounded overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
