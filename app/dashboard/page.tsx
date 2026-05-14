@@ -3,18 +3,22 @@
 import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
 
+/* ---------- config ---------- */
+
+// Minimum trades required before flagging a cell
+const MIN_TRADES_FOR_FLAG = 5;
+
 /* ---------- session helpers ---------- */
 
 type Session = "Open" | "Midday" | "Power Hour";
 
 function getSessionFromDate(dateStr: string): Session | null {
-  // Uses local time of the browser
   const d = new Date(dateStr);
   const hour = d.getHours();
   const min = d.getMinutes();
 
   // Open: 09:30–09:45
-  if ((hour === 9 && min >= 30 && min < 45)) return "Open";
+  if (hour === 9 && min >= 30 && min < 45) return "Open";
 
   // Midday: 09:45–11:30
   if (
@@ -31,12 +35,18 @@ function getSessionFromDate(dateStr: string): Session | null {
   return null;
 }
 
+function cellColor(avgR: number | null) {
+  if (avgR === null) return "bg-gray-100 text-gray-400";
+  if (avgR > 0) return "bg-green-100 text-green-800";
+  if (avgR < 0) return "bg-red-100 text-red-800";
+  return "bg-gray-100 text-gray-600";
+}
+
 /* ---------- page ---------- */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
 
-  // only trades usable for R analytics
   const validTrades = useMemo(
     () => trades.filter((t) => t.risk > 0),
     [trades]
@@ -52,7 +62,7 @@ export default function DashboardPage() {
 
   const sessions: Session[] = ["Open", "Midday", "Power Hour"];
 
-  // Strategy × Session matrix
+  // Strategy × Session aggregation
   const matrix = useMemo(() => {
     const map = new Map<
       string,
@@ -80,18 +90,15 @@ export default function DashboardPage() {
     return map;
   }, [validTrades]);
 
-  function cellClass(avgR: number | null) {
-    if (avgR === null) return "bg-gray-100 text-gray-400";
-    if (avgR > 0) return "bg-green-100 text-green-800";
-    if (avgR < 0) return "bg-red-100 text-red-800";
-    return "bg-gray-100 text-gray-600";
-  }
-
   return (
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900">
-      <h1 className="text-3xl font-bold mb-6">
+      <h1 className="text-3xl font-bold mb-2">
         Strategy × Session (R Analytics)
       </h1>
+      <p className="text-sm text-gray-600 mb-6">
+        🚩 Cells are auto‑flagged when Avg R is negative with ≥{" "}
+        {MIN_TRADES_FOR_FLAG} trades.
+      </p>
 
       <div className="bg-white border rounded overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -119,32 +126,60 @@ export default function DashboardPage() {
                       cell && cell.count > 0
                         ? cell.totalR / cell.count
                         : null;
+
+                    const shouldFlag =
+                      avgR !== null &&
+                      avgR < 0 &&
+                      cell!.count >= MIN_TRADES_FOR_FLAG;
+
                     return (
                       <td
                         key={s}
-                        className={`px-3 py-2 text-center font-semibold ${cellClass(
+                        className={`px-3 py-2 text-center font-semibold ${cellColor(
                           avgR
-                        )}`}
+                        )} ${
+                          shouldFlag
+                            ? "border-2 border-red-500"
+                            : "border border-transparent"
+                        }`}
                         title={
-                          cell
-                            ? `${cell.count} trades`
-                            : "No trades"
+                          avgR === null
+                            ? "No trades"
+                            : `Avg R: ${avgR.toFixed(
+                                2
+                              )}, Trades: ${cell!.count}${
+                                shouldFlag
+                                  ? " — Flagged (negative expectancy)"
+                                  : ""
+                              }`
                         }
                       >
-                        {avgR === null ? "–" : avgR.toFixed(2)}
+                        {avgR === null ? (
+                          "–"
+                        ) : (
+                          <>
+                            {avgR.toFixed(2)}
+                            {shouldFlag && (
+                              <span className="ml-1" aria-label="flag">
+                                🚩
+                              </span>
+                            )}
+                          </>
+                        )}
                       </td>
                     );
                   })}
                 </tr>
               );
             })}
+
             {strategies.length === 0 && (
               <tr>
                 <td
                   colSpan={sessions.length + 1}
                   className="px-4 py-6 text-center text-gray-500"
                 >
-                  No trades with session data.
+                  No trades with sufficient data.
                 </td>
               </tr>
             )}
