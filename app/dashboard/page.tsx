@@ -1,8 +1,8 @@
 "use client";
 
-import } from "../context/TradesContext";import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { use
 
-/* ---------- types ---------- */
 
 type Session = "Open" | "Midday" | "Power Hour";
 
