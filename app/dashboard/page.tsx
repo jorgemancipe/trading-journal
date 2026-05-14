@@ -3,130 +3,129 @@
 import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
 
-type StrategyStats = {
-  strategy: string;
-  trades: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-  avgR: number;
-  profitFactor: number;
-  netR: number;
-};
+/* ---------- helpers ---------- */
+
+function hourLabel(h: number) {
+  return `${h}:00`;
+}
+
+function cellColor(avgR: number | null) {
+  if (avgR === null) return "bg-gray-100 text-gray-400";
+  if (avgR > 0) return "bg-green-100 text-green-800";
+  if (avgR < 0) return "bg-red-100 text-red-800";
+  return "bg-gray-100 text-gray-600";
+}
+
+/* ---------- page ---------- */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
 
-  const strategyStats = useMemo<StrategyStats[]>(() => {
-    const map = new Map<string, StrategyStats>();
+  // Only trades usable for R analytics
+  const validTrades = useMemo(
+    () => trades.filter((t) => t.risk > 0),
+    [trades]
+  );
 
-    for (const t of trades) {
-      if (t.risk <= 0) continue;
+  /* Collect unique strategies and hours */
+  const strategies = useMemo(
+    () =>
+      Array.from(
+        new Set(validTrades.map((t) => t.strategy || "Unassigned"))
+      ).sort(),
+    [validTrades]
+  );
 
+  const hours = useMemo(() => {
+    const hs = new Set<number>();
+    for (const t of validTrades) {
+      const h = new Date(t.date).getHours();
+      hs.add(h);
+    }
+    return Array.from(hs).sort((a, b) => a - b);
+  }, [validTrades]);
+
+  /* Build Strategy × Hour matrix */
+  const matrix = useMemo(() => {
+    const map = new Map<string, Map<number, { totalR: number; count: number }>>();
+
+    for (const t of validTrades) {
+      const strategy = t.strategy || "Unassigned";
+      const hour = new Date(t.date).getHours();
       const r = t.profit / t.risk;
-      const key = t.strategy || "Unassigned";
 
-      if (!map.has(key)) {
-        map.set(key, {
-          strategy: key,
-          trades: 0,
-          wins: 0,
-          losses: 0,
-          winRate: 0,
-          avgR: 0,
-          profitFactor: 0,
-          netR: 0,
-        });
+      if (!map.has(strategy)) {
+        map.set(strategy, new Map());
       }
-
-      const s = map.get(key)!;
-      s.trades += 1;
-      s.netR += r;
-
-      if (r > 0) s.wins += 1;
-      if (r < 0) s.losses += 1;
+      const row = map.get(strategy)!;
+      const cell = row.get(hour) ?? { totalR: 0, count: 0 };
+      cell.totalR += r;
+      cell.count += 1;
+      row.set(hour, cell);
     }
 
-    return Array.from(map.values()).map((s) => {
-      const grossWinR = trades
-        .filter((t) => t.strategy === s.strategy && t.profit > 0 && t.risk > 0)
-        .reduce((sum, t) => sum + t.profit / t.risk, 0);
-
-      const grossLossR = Math.abs(
-        trades
-          .filter((t) => t.strategy === s.strategy && t.profit < 0 && t.risk > 0)
-          .reduce((sum, t) => sum + t.profit / t.risk, 0)
-      );
-
-      return {
-        ...s,
-        winRate: s.trades > 0 ? (s.wins / s.trades) * 100 : 0,
-        avgR: s.trades > 0 ? s.netR / s.trades : 0,
-        profitFactor:
-          grossLossR === 0 ? (grossWinR > 0 ? Infinity : 0) : grossWinR / grossLossR,
-      };
-    });
-  }, [trades]);
+    return map;
+  }, [validTrades]);
 
   return (
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900">
-      <h1 className="text-3xl font-bold mb-6">Strategy Analytics</h1>
+      <h1 className="text-3xl font-bold mb-6">
+        Strategy × Time‑of‑Day Heatmap
+      </h1>
 
       <div className="bg-white border rounded overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
-              <th className="px-4 py-2 text-left">Strategy</th>
-              <th className="px-4 py-2 text-right">Trades</th>
-              <th className="px-4 py-2 text-right">Win %</th>
-              <th className="px-4 py-2 text-right">Avg R</th>
-              <th className="px-4 py-2 text-right">Profit Factor</th>
-              <th className="px-4 py-2 text-right">Net R</th>
+              <th className="px-3 py-2 text-left">Strategy</th>
+              {hours.map((h) => (
+                <th key={h} className="px-3 py-2 text-center">
+                  {hourLabel(h)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {strategyStats.map((s) => (
-              <tr key={s.strategy} className="border-t">
-                <td className="px-4 py-2 font-medium">{s.strategy}</td>
-                <td className="px-4 py-2 text-right">{s.trades}</td>
-                <td
-                  className={`px-4 py-2 text-right font-semibold ${
-                    s.winRate >= 50 ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {s.winRate.toFixed(1)}%
-                </td>
-                <td
-                  className={`px-4 py-2 text-right font-semibold ${
-                    s.avgR >= 0 ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {s.avgR.toFixed(2)}
-                </td>
-                <td
-                  className={`px-4 py-2 text-right font-semibold ${
-                    s.profitFactor >= 1 ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {s.profitFactor === Infinity ? "∞" : s.profitFactor.toFixed(2)}
-                </td>
-                <td
-                  className={`px-4 py-2 text-right font-semibold ${
-                    s.netR >= 0 ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {s.netR.toFixed(2)}
-                </td>
-              </tr>
-            ))}
+            {strategies.map((strategy) => {
+              const row = matrix.get(strategy);
+              return (
+                <tr key={strategy} className="border-t">
+                  <td className="px-3 py-2 font-medium whitespace-nowrap">
+                    {strategy}
+                  </td>
+                  {hours.map((h) => {
+                    const cell = row?.get(h);
+                    const avgR =
+                      cell && cell.count > 0
+                        ? cell.totalR / cell.count
+                        : null;
+                    return (
+                      <td
+                        key={h}
+                        className={`px-3 py-2 text-center font-semibold ${cellColor(
+                          avgR
+                        )}`}
+                        title={
+                          cell
+                            ? `${cell.count} trades`
+                            : "No trades"
+                        }
+                      >
+                        {avgR === null ? "–" : avgR.toFixed(2)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
 
-            {strategyStats.length === 0 && (
+            {strategies.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={hours.length + 1}
                   className="px-4 py-6 text-center text-gray-500"
                 >
-                  No strategy data yet.
+                  No trades with strategy and risk data.
                 </td>
               </tr>
             )}
@@ -136,4 +135,3 @@ export default function DashboardPage() {
     </main>
   );
 }
-``
