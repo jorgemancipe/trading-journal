@@ -26,7 +26,6 @@ function buildRDistribution(rs: number[]) {
     { label: "1R to 2R", min: 1, max: 2 },
     { label: "> 2R", min: 2, max: Infinity },
   ];
-
   return buckets.map((b) => ({
     label: b.label,
     count: rs.filter((r) => r >= b.min && r < b.max).length,
@@ -37,7 +36,6 @@ function buildRDistribution(rs: number[]) {
 
 export default function DashboardPage() {
   const { trades } = useTrades();
-
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -74,6 +72,7 @@ export default function DashboardPage() {
     };
   }, [filteredTrades]);
 
+  /* ✅ R expectancy by symbol */
   const rBySymbol = useMemo(() => {
     const map = new Map<string, { totalR: number; count: number }>();
     for (const t of filteredTrades) {
@@ -92,26 +91,24 @@ export default function DashboardPage() {
       .sort((a, b) => b.avgR - a.avgR);
   }, [filteredTrades]);
 
-  const rByStrategy = useMemo(() => {
-    const map = new Map<string, { totalR: number; count: number }>();
-
+  /* ✅ R expectancy by time of day */
+  const rByHour = useMemo(() => {
+    const map = new Map<number, { totalR: number; count: number }>();
     for (const t of filteredTrades) {
-      const strategy = (t.strategy || "Unassigned") as string;
+      const hour = new Date(t.date).getHours();
       const r = t.profit / t.risk;
-
-      const entry = map.get(strategy) ?? { totalR: 0, count: 0 };
+      const entry = map.get(hour) ?? { totalR: 0, count: 0 };
       entry.totalR += r;
       entry.count += 1;
-      map.set(strategy, entry);
+      map.set(hour, entry);
     }
-
     return Array.from(map.entries())
-      .map(([strategy, v]) => ({
-        strategy,
+      .map(([hour, v]) => ({
+        hour,
         avgR: v.totalR / v.count,
         trades: v.count,
       }))
-      .sort((a, b) => b.avgR - a.avgR);
+      .sort((a, b) => a.hour - b.hour);
   }, [filteredTrades]);
 
   return (
@@ -120,147 +117,57 @@ export default function DashboardPage() {
 
       {/* Filters */}
       <div className="mb-6 bg-white p-4 border rounded flex gap-4">
-        <div>
-          <label className="text-xs">Date From</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="border rounded px-3 py-2"
-          />
-        </div>
-        <div>
-          <label className="text-xs">Date To</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="border rounded px-3 py-2"
-          />
-        </div>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
       </div>
 
-      {/* Core Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+      {/* Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <Metric label="Trades" value={metrics.trades} />
-        <Metric
-          label="Profit Factor"
-          value={metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)}
-          positive={metrics.profitFactor >= 1}
-          negative={metrics.profitFactor < 1}
-        />
-        <Metric
-          label="Average R"
-          value={metrics.avgR.toFixed(2)}
-          positive={metrics.avgR >= 0}
-          negative={metrics.avgR < 0}
-        />
-        <Metric label="Largest R Win" value={metrics.largestRWin.toFixed(2)} positive />
-        <Metric label="Largest R Loss" value={metrics.largestRLoss.toFixed(2)} negative />
-        <Metric label="Max Drawdown" value={`$${metrics.maxDrawdown.toFixed(2)}`} negative />
+        <Metric label="Profit Factor" value={metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)} />
+        <Metric label="Average R" value={metrics.avgR.toFixed(2)} />
+        <Metric label="Largest R Win" value={metrics.largestRWin.toFixed(2)} />
+        <Metric label="Largest R Loss" value={metrics.largestRLoss.toFixed(2)} />
       </div>
 
-      {/* R Expectancy by Symbol */}
-      <div className="bg-white border rounded p-4 mb-8">
-        <h2 className="text-lg font-semibold mb-4">R Expectancy by Symbol</h2>
-        <SimpleTable rows={rBySymbol} firstHeader="Symbol" />
-      </div>
+      {/* R by Symbol */}
+      <Section title="R Expectancy by Symbol" rows={rBySymbol} firstKey="symbol" />
 
-      {/* ✅ R Expectancy by Strategy */}
-      <div className="bg-white border rounded p-4 mb-8">
-        <h2 className="text-lg font-semibold mb-4">R Expectancy by Strategy</h2>
-        <SimpleTable rows={rByStrategy} firstHeader="Strategy" />
-      </div>
+      {/* ✅ R by Time of Day */}
+      <Section title="Time‑of‑Day R Expectancy" rows={rByHour} firstKey="hour" suffix=":00" />
 
       {/* R Distribution */}
-      <div className="bg-white border rounded p-4">
-        <h2 className="text-lg font-semibold mb-4">R Distribution</h2>
-        <div className="flex items-end gap-4 h-48">
-          {metrics.rDist.map((b) => (
-            <div key={b.label} className="flex flex-col items-center w-16">
-              <div
-                className="bg-blue-600 w-full"
-                style={{ height: `${b.count * 20}px`, minHeight: 8 }}
-              />
-              <div className="text-xs mt-2">{b.label}</div>
-              <div className="text-xs text-gray-500">{b.count}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <Section title="R Distribution" rows={metrics.rDist} />
     </main>
   );
 }
 
-/* ───────── reusable table ───────── */
+/* ───────── reusable components ───────── */
 
-function SimpleTable({
-  rows,
-  firstHeader,
-}: {
-  rows: { avgR: number; trades: number }[] & Record<string, any>[];
-  firstHeader: string;
-}) {
+function Section({ title, rows, firstKey, suffix = "" }: any) {
   return (
-    <table className="min-w-full text-sm">
-      <thead className="bg-gray-100">
-        <tr>
-          <th className="px-4 py-2 text-left">{firstHeader}</th>
-          <th className="px-4 py-2 text-right">Avg R</th>
-          <th className="px-4 py-2 text-right">Trades</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r[firstHeader.toLowerCase()] ?? r.strategy ?? r.symbol} className="border-t">
-            <td className="px-4 py-2 font-medium">
-              {r[firstHeader.toLowerCase()] ?? r.strategy ?? r.symbol}
-            </td>
-            <td
-              className={`px-4 py-2 text-right font-semibold ${
-                r.avgR >= 0 ? "text-green-700" : "text-red-700"
-              }`}
-            >
-              {r.avgR.toFixed(2)}
-            </td>
-            <td className="px-4 py-2 text-right">{r.trades}</td>
-          </tr>
-        ))}
-        {rows.length === 0 && (
-          <tr>
-            <td colSpan={3} className="px-4 py-4 text-center text-gray-500">
-              No data available.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
+    <div className="bg-white border rounded p-4 mb-8">
+      <h2 className="text-lg font-semibold mb-4">{title}</h2>
+      <table className="min-w-full text-sm">
+        <tbody>
+          {rows.map((r: any, i: number) => (
+            <tr key={i} className="border-t">
+              <td className="px-4 py-2">{firstKey ? r[firstKey] + suffix : r.label}</td>
+              <td className="px-4 py-2 text-right">{r.avgR ?? r.count}</td>
+              <td className="px-4 py-2 text-right">{r.trades ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-/* ───────── metric card ───────── */
-
-function Metric({
-  label,
-  value,
-  positive,
-  negative,
-}: {
-  label: string;
-  value: string | number;
-  positive?: boolean;
-  negative?: boolean;
-}) {
+function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="bg-white border rounded p-4">
       <div className="text-sm text-gray-500">{label}</div>
-      <div
-        className={`text-2xl font-semibold ${
-          positive ? "text-green-700" : negative ? "text-red-700" : ""
-        }`}
-      >
-        {value}
-      </div>
+      <div className="text-2xl font-semibold">{value}</div>
     </div>
   );
 }
