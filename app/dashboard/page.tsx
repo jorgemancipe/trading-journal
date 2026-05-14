@@ -3,7 +3,15 @@
 import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
+/* ---------- types ---------- */
+
 type Session = "Open" | "Midday" | "Power Hour";
+
+type Rule = {
+  strategy: string;
+  session: Session;
+};
+
 /* ---------- helpers ---------- */
 
 function getSessionFromDate(dateStr: string): Session | null {
@@ -37,6 +45,7 @@ export default function DashboardPage() {
     [trades]
   );
 
+  /* Build strategy × session stats */
   const matrix = useMemo(() => {
     const map = new Map<
       string,
@@ -64,8 +73,10 @@ export default function DashboardPage() {
     return map;
   }, [validTrades]);
 
-  const rules = useMemo(() => {
-    const out: { strategy: string; session: Session }[] = [];
+  /* Auto‑rules */
+  const rules: Rule[] = useMemo(() => {
+    const out: Rule[] = [];
+
     for (const [strategy, row] of matrix.entries()) {
       for (const [session, cell] of row.entries()) {
         const r = cell.totalR / cell.count;
@@ -74,15 +85,18 @@ export default function DashboardPage() {
         }
       }
     }
+
     return out;
   }, [matrix, minTrades]);
 
+  /* Simulated application */
   const simulatedTrades = useMemo(() => {
     if (!simulate) return validTrades;
 
     return validTrades.filter((t) => {
       const s = getSessionFromDate(t.date);
       if (!s) return true;
+
       return !rules.some(
         (r) => r.strategy === t.strategy && r.session === s
       );
@@ -91,17 +105,19 @@ export default function DashboardPage() {
 
   const originalAvgR = avgR(validTrades);
   const simulatedAvgR = avgR(simulatedTrades);
+  const deltaCombined = simulatedAvgR - originalAvgR;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900">
       <h1 className="text-3xl font-bold mb-6">
         Simulated “Apply Rules”
       </h1>
 
-      <div className="bg-white p-4 border rounded mb-6 space-y-4">
+      {/* Controls */}
+      <div className="bg-white border rounded p-4 mb-6 space-y-4">
         <div>
-          <label className="text-sm font-medium">
-            Minimum trades: {minTrades}
+          <label className="block text-sm font-medium">
+            Minimum trades for rules: {minTrades}
           </label>
           <input
             type="range"
@@ -123,27 +139,78 @@ export default function DashboardPage() {
         </label>
       </div>
 
-      <div className="bg-white p-4 border rounded mb-6">
-        <h2 className="font-semibold mb-2">Results</h2>
-        <div className="grid grid-cols-2 gap-4">
+      {/* Overall simulation result */}
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-2">Overall Impact</h2>
+        <div className="grid grid-cols-3 gap-4 text-sm">
           <div>Original Avg R: {originalAvgR.toFixed(2)}</div>
           <div>Simulated Avg R: {simulatedAvgR.toFixed(2)}</div>
+          <div
+            className={
+              deltaCombined >= 0
+                ? "text-green-700 font-semibold"
+                : "text-red-700 font-semibold"
+            }
+          >
+            Δ Avg R: {deltaCombined >= 0 ? "+" : ""}
+            {deltaCombined.toFixed(2)}
+          </div>
         </div>
       </div>
 
-      <div className="bg-white p-4 border rounded">
-        <h2 className="font-semibold mb-2">Auto‑Rules</h2>
+      {/* ✅ Per‑Rule Impact Breakdown */}
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-3">
+          Per‑Rule Impact Breakdown
+        </h2>
+
         {rules.length === 0 ? (
-          <div>No rules triggered.</div>
+          <div className="text-sm text-gray-500">
+            No rules available at this threshold.
+          </div>
         ) : (
-          <ul className="list-disc list-inside">
-            {rules.map((r, i) => (
-              <li key={i}>
-                Disable <strong>{r.strategy}</strong> during{" "}
-                <strong>{r.session}</strong>
-              </li>
-            ))}
-          </ul>
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="px-3 py-2 text-left">Rule</th>
+                <th className="px-3 py-2 text-right">Trades Removed</th>
+                <th className="px-3 py-2 text-right">Δ Avg R</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((rule, i) => {
+                const filtered = validTrades.filter((t) => {
+                  const s = getSessionFromDate(t.date);
+                  return !(
+                    t.strategy === rule.strategy && s === rule.session
+                  );
+                });
+
+                const delta = avgR(filtered) - originalAvgR;
+                const removed = validTrades.length - filtered.length;
+
+                return (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2">
+                      Disable <strong>{rule.strategy}</strong> during{" "}
+                      <strong>{rule.session}</strong>
+                    </td>
+                    <td className="px-3 py-2 text-right">{removed}</td>
+                    <td
+                      className={`px-3 py-2 text-right font-semibold ${
+                        delta >= 0
+                          ? "text-green-700"
+                          : "text-red-700"
+                      }`}
+                    >
+                      {delta >= 0 ? "+" : ""}
+                      {delta.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
     </main>
