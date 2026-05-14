@@ -2,33 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
-function exportTradesToCSV(trades: Trade[]) {
-  if (trades.length === 0) return;
 
-  const headers = [
-    "Date",
-    "Symbol",
-    "Side",
-    "Quantity",
-    "Entry",
-    "Exit",
-    "Profit",
-  ];
+function exportTradesToCSV(trades: Trade[]) {
+  if (!trades || trades.length === 0) return;
+
+  const headers = ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"];
 
   const rows = trades.map((t) => [
     t.date,
     t.symbol,
     t.side,
-    t.quantity,
-    t.entry,
-    t.exit,
+    String(t.quantity),
+    String(t.entry),
+    String(t.exit),
     t.profit.toFixed(2),
   ]);
 
-  const csv =
-    [headers, ...rows]
-      .map((row) => row.join(","))
-      .join("\n");
+  const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -36,10 +26,13 @@ function exportTradesToCSV(trades: Trade[]) {
   const link = document.createElement("a");
   link.href = url;
   link.download = "trades.csv";
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
 
   URL.revokeObjectURL(url);
 }
+
 export default function TradesClient() {
   const { trades, addTrade, clearTrades } = useTrades();
   const [showForm, setShowForm] = useState(false);
@@ -55,32 +48,38 @@ export default function TradesClient() {
     exit: 0,
   });
 
-  // Live P/L preview
   const liveProfit = useMemo(() => {
-    if (form.quantity <= 0 || form.entry <= 0 || form.exit <= 0) return 0;
+    const qty = Number(form.quantity);
+    const entry = Number(form.entry);
+    const exit = Number(form.exit);
 
-    return form.side === "Buy"
-      ? (form.exit - form.entry) * form.quantity
-      : (form.entry - form.exit) * form.quantity;
+    if (qty <= 0 || entry <= 0 || exit <= 0) return 0;
+
+    // Buy (Long): (exit - entry) * qty
+    // Sell (Short): (entry - exit) * qty
+    return form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
   }, [form]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.symbol || form.quantity <= 0) return;
 
-    const profit =
-      form.side === "Buy"
-        ? (form.exit - form.entry) * form.quantity
-        : (form.entry - form.exit) * form.quantity;
+    const symbol = form.symbol.trim().toUpperCase();
+    const qty = Number(form.quantity);
+    const entry = Number(form.entry);
+    const exit = Number(form.exit);
+
+    if (!form.date || !symbol || qty <= 0 || entry <= 0 || exit <= 0) return;
+
+    const profit = form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
 
     const newTrade: Trade = {
       id: Date.now(),
       date: form.date,
-      symbol: form.symbol.toUpperCase(),
+      symbol,
       side: form.side,
-      quantity: form.quantity,
-      entry: form.entry,
-      exit: form.exit,
+      quantity: qty,
+      entry,
+      exit,
       profit,
     };
 
@@ -104,27 +103,24 @@ export default function TradesClient() {
         <h1 className="text-3xl font-bold">Trades</h1>
 
         <div className="flex gap-2">
-  <button
-    onClick={() => setShowForm((v) => !v)}
-    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
-  >
-    New Trade
-  </button>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 transition"
+          >
+            New Trade
+          </button>
 
-  <button
-    onClick={() => exportTradesToCSV(trades)}
-    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500"
-  >
-    Export CSV
-  </button>
+          <button
+            onClick={() => exportTradesToCSV(trades)}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
+          >
+            Export CSV
+          </button>
 
-  <button
-    onClick={clearTrades}
-    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500"
-  >
-    Clear All
-  </button>
-</div>
+          <button
+            onClick={clearTrades}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500 transition"
+          >
             Clear All
           </button>
         </div>
@@ -153,9 +149,7 @@ export default function TradesClient() {
 
           <select
             value={form.side}
-            onChange={(e) =>
-              setForm({ ...form, side: e.target.value as "Buy" | "Sell" })
-            }
+            onChange={(e) => setForm({ ...form, side: e.target.value as "Buy" | "Sell" })}
             className="border rounded px-3 py-2"
           >
             <option value="Buy">Buy (Long)</option>
@@ -166,9 +160,7 @@ export default function TradesClient() {
             type="number"
             placeholder="Quantity"
             value={form.quantity}
-            onChange={(e) =>
-              setForm({ ...form, quantity: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
             className="border rounded px-3 py-2"
             required
           />
@@ -178,9 +170,7 @@ export default function TradesClient() {
             step="0.01"
             placeholder="Entry Price"
             value={form.entry}
-            onChange={(e) =>
-              setForm({ ...form, entry: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, entry: Number(e.target.value) })}
             className="border rounded px-3 py-2"
             required
           />
@@ -190,27 +180,23 @@ export default function TradesClient() {
             step="0.01"
             placeholder="Exit Price"
             value={form.exit}
-            onChange={(e) =>
-              setForm({ ...form, exit: Number(e.target.value) })
-            }
+            onChange={(e) => setForm({ ...form, exit: Number(e.target.value) })}
             className="border rounded px-3 py-2"
             required
           />
 
-          <div className="col-span-2 text-sm text-gray-600">
-            P/L Preview:{" "}
-            <span
-              className={
-                liveProfit >= 0 ? "text-green-700" : "text-red-700"
-              }
-            >
-              {liveProfit.toFixed(2)}
-            </span>
+          <div className="col-span-2 p-3 rounded bg-gray-50 border text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">P/L Preview</span>
+              <span className={liveProfit >= 0 ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}>
+                ${liveProfit.toFixed(2)}
+              </span>
+            </div>
           </div>
 
           <button
             type="submit"
-            className="col-span-2 py-2 bg-green-600 text-white rounded hover:bg-green-500"
+            className="col-span-2 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
           >
             Add Trade
           </button>
@@ -233,18 +219,14 @@ export default function TradesClient() {
 
           <tbody>
             {trades.map((t) => (
-              <tr key={t.id} className="border-t">
+              <tr key={t.id} className="border-t hover:bg-gray-50">
                 <td className="px-4 py-2">{t.date}</td>
                 <td className="px-4 py-2 font-medium">{t.symbol}</td>
                 <td className="px-4 py-2">{t.side}</td>
                 <td className="px-4 py-2 text-right">{t.quantity}</td>
-                <td className="px-4 py-2 text-right">{t.entry}</td>
-                <td className="px-4 py-2 text-right">{t.exit}</td>
-                <td
-                  className={`px-4 py-2 text-right ${
-                    t.profit >= 0 ? "text-green-600" : "text-red-600"
-                  }`}
-                >
+                <td className="px-4 py-2 text-right">{t.entry.toFixed(2)}</td>
+                <td className="px-4 py-2 text-right">{t.exit.toFixed(2)}</td>
+                <td className={`px-4 py-2 text-right font-semibold ${t.profit >= 0 ? "text-green-600" : "text-red-600"}`}>
                   {t.profit.toFixed(2)}
                 </td>
               </tr>
