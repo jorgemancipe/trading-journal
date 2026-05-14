@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useTrades } from "../context/Trades ================== Helpers ================== */import { useTrades } from "../context/TradesContext";
+import { useTrades }Open" | "Midday" | "PowerHour";import { useTrades } from "../context/TradesContext";
+
+
 
 function getSession(date: string): Session | null {
   // Requires time in date string (YYYY-MM-DDTHH:mm)
