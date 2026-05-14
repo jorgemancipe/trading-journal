@@ -15,21 +15,34 @@ const STRATEGY_PRESETS = [
   "Custom…",
 ] as const;
 
+type StrategyPreset = (typeof STRATEGY_PRESETS)[number];
+
+type TradeForm = {
+  date: string;
+  symbol: string;
+  side: "Buy" | "Sell";
+  quantity: number;
+  entry: number;
+  exit: number;
+  risk: number;
+
+  strategyPreset: StrategyPreset;
+  customStrategy: string;
+};
+
 export default function TradesClient() {
   const { trades, addTrade, clearTrades } = useTrades();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<TradeForm>({
     date: today,
     symbol: "",
-    side: "Buy" as "Buy" | "Sell",
+    side: "Buy",
     quantity: 0,
     entry: 0,
     exit: 0,
     risk: 0,
-
-    // ✅ dropdown-driven strategy
-    strategyPreset: STRATEGY_PRESETS[0],
+    strategyPreset: STRATEGY_PRESETS[0], // ✅ now typed as StrategyPreset union
     customStrategy: "",
   });
 
@@ -62,7 +75,7 @@ export default function TradesClient() {
       exit: form.exit,
       profit,
       risk: form.risk,
-      strategy: chosenStrategy || "Unassigned", // ✅ always satisfies Trade.strategy
+      strategy: chosenStrategy || "Unassigned",
     };
 
     addTrade(trade);
@@ -75,7 +88,6 @@ export default function TradesClient() {
       exit: 0,
       risk: 0,
       customStrategy: "",
-      // keep preset as-is so you can rapidly enter multiple trades of same setup
     }));
   }
 
@@ -112,11 +124,10 @@ export default function TradesClient() {
           required
         />
 
-        {/* ✅ Strategy dropdown (presets derived from your ORB trading plan doc) */}
         <select
           value={form.strategyPreset}
           onChange={(e) =>
-            setForm({ ...form, strategyPreset: e.target.value as any })
+            setForm({ ...form, strategyPreset: e.target.value as StrategyPreset })
           }
           className="border rounded px-3 py-2"
         >
@@ -127,12 +138,13 @@ export default function TradesClient() {
           ))}
         </select>
 
-        {/* ✅ Only show custom input if Custom… is selected */}
         {isCustom ? (
           <input
             placeholder='Custom Strategy (e.g. "ABC Setup")'
             value={form.customStrategy}
-            onChange={(e) => setForm({ ...form, customStrategy: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, customStrategy: e.target.value })
+            }
             className="border rounded px-3 py-2"
           />
         ) : (
@@ -156,7 +168,9 @@ export default function TradesClient() {
           type="number"
           placeholder="Quantity"
           value={form.quantity}
-          onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+          onChange={(e) =>
+            setForm({ ...form, quantity: Number(e.target.value) })
+          }
           className="border rounded px-3 py-2"
           required
         />
@@ -166,7 +180,9 @@ export default function TradesClient() {
           step="0.01"
           placeholder="Entry Price"
           value={form.entry}
-          onChange={(e) => setForm({ ...form, entry: Number(e.target.value) })}
+          onChange={(e) =>
+            setForm({ ...form, entry: Number(e.target.value) })
+          }
           className="border rounded px-3 py-2"
           required
         />
@@ -176,7 +192,9 @@ export default function TradesClient() {
           step="0.01"
           placeholder="Exit Price"
           value={form.exit}
-          onChange={(e) => setForm({ ...form, exit: Number(e.target.value) })}
+          onChange={(e) =>
+            setForm({ ...form, exit: Number(e.target.value) })
+          }
           className="border rounded px-3 py-2"
           required
         />
@@ -186,7 +204,9 @@ export default function TradesClient() {
           step="0.01"
           placeholder="Risk ($) — required for R metrics"
           value={form.risk}
-          onChange={(e) => setForm({ ...form, risk: Number(e.target.value) })}
+          onChange={(e) =>
+            setForm({ ...form, risk: Number(e.target.value) })
+          }
           className="border rounded px-3 py-2"
           required
         />
@@ -199,7 +219,6 @@ export default function TradesClient() {
         </button>
       </form>
 
-      {/* Simple table showing strategy & R for quick verification */}
       <div className="bg-white border rounded overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
