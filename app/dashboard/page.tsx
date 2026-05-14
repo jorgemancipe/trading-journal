@@ -14,61 +14,37 @@ function calculateMaxDrawdown(trades: { profit: number }[]) {
 
   for (const t of trades) {
     equity += t.profit;
-
-    if (equity > peak) {
-      peak = equity;
-    }
+    if (equity > peak) peak = equity;
 
     const drawdown = peak - equity;
-    if (drawdown > maxDrawdown) {
-      maxDrawdown = drawdown;
-    }
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
   }
 
   return maxDrawdown;
 }
 
-/** Export dashboard metrics to CSV */
-function exportDashboardMetrics(metrics: {
-  totalTrades: number;
-  winRate: number;
-  avgWin: number;
-  avgLoss: number;
-  expectancy: number;
-  maxDrawdown: number;
-}) {
-  const rows = [
-    ["Metric", "Value"],
-    ["Total Trades", String(metrics.totalTrades)],
-    ["Win Rate (%)", metrics.winRate.toFixed(2)],
-    ["Average Win", metrics.avgWin.toFixed(2)],
-    ["Average Loss", metrics.avgLoss.toFixed(2)],
-    ["Expectancy", metrics.expectancy.toFixed(2)],
-    ["Max Drawdown", metrics.maxDrawdown.toFixed(2)],
-  ];
-
-  const csv = rows.map((r) => r.join(",")).join("\n");
-  downloadCSV(csv, "dashboard-metrics.csv");
+/** Timestamp like 2026-05-14_14-33-07 (local time) */
+function timestampString() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
 }
 
-/** Export all trades to CSV */
-function exportAllTrades(trades: any[]) {
-  if (!trades || trades.length === 0) return;
+/** RFC4180-ish CSV escaping: wrap in quotes, escape quotes, preserve commas/newlines */
+function csvCell(value: unknown) {
+  if (value === null || value === undefined) return '""';
+  const s = String(value).replace(/"/g, '""');
+  return `"${s}"`;
+}
 
-  const headers = ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"];
-
-  const rows = trades.map((t) => [
-    t.date ?? "",
-    t.symbol ?? "",
-    t.side ?? "",
-    String(t.quantity ?? ""),
-    String(t.entry ?? ""),
-    String(t.exit ?? ""),
-    typeof t.profit === "number" ? t.profit.toFixed(2) : String(t.profit ?? ""),
-  ]);
-
-  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-  downloadCSV(csv, "trades.csv");
+function buildCSV(rows: unknown[][]) {
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
 /** Shared downloader */
@@ -87,6 +63,50 @@ function downloadCSV(csvText: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Export dashboard metrics to CSV (quoted + timestamp) */
+function exportDashboardMetrics(metrics: {
+  totalTrades: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  expectancy: number;
+  maxDrawdown: number;
+}) {
+  const rows = [
+    ["Metric", "Value"],
+    ["Total Trades", metrics.totalTrades],
+    ["Win Rate (%)", metrics.winRate.toFixed(2)],
+    ["Average Win", metrics.avgWin.toFixed(2)],
+    ["Average Loss", metrics.avgLoss.toFixed(2)],
+    ["Expectancy", metrics.expectancy.toFixed(2)],
+    ["Max Drawdown", metrics.maxDrawdown.toFixed(2)],
+  ];
+
+  const csv = buildCSV(rows);
+  downloadCSV(csv, `dashboard-metrics-${timestampString()}.csv`);
+}
+
+/** Export all trades to CSV (quoted + timestamp) */
+function exportAllTrades(trades: any[]) {
+  if (!trades || trades.length === 0) return;
+
+  const rows: unknown[][] = [
+    ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"],
+    ...trades.map((t) => [
+      t.date ?? "",
+      t.symbol ?? "",
+      t.side ?? "",
+      t.quantity ?? "",
+      t.entry ?? "",
+      t.exit ?? "",
+      typeof t.profit === "number" ? t.profit.toFixed(2) : (t.profit ?? ""),
+    ]),
+  ];
+
+  const csv = buildCSV(rows);
+  downloadCSV(csv, `trades-${timestampString()}.csv`);
+}
+
 export default function DashboardPage() {
   const { trades } = useTrades();
 
@@ -95,35 +115,22 @@ export default function DashboardPage() {
     const wins = trades.filter((t: any) => t.profit > 0);
     const losses = trades.filter((t: any) => t.profit < 0);
 
-    const winRate =
-      totalTrades === 0 ? 0 : (wins.length / totalTrades) * 100;
+    const winRate = totalTrades === 0 ? 0 : (wins.length / totalTrades) * 100;
 
     const avgWin =
-      wins.length === 0
-        ? 0
-        : wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length;
+      wins.length === 0 ? 0 : wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length;
 
     const avgLoss =
-      losses.length === 0
-        ? 0
-        : losses.reduce((s: number, t: any) => s + t.profit, 0) / losses.length;
+      losses.length === 0 ? 0 : losses.reduce((s: number, t: any) => s + t.profit, 0) / losses.length;
 
     const expectancy =
       totalTrades === 0
         ? 0
-        : (winRate / 100) * avgWin +
-          ((100 - winRate) / 100) * avgLoss;
+        : (winRate / 100) * avgWin + ((100 - winRate) / 100) * avgLoss;
 
     const maxDrawdown = calculateMaxDrawdown(trades);
 
-    return {
-      totalTrades,
-      winRate,
-      avgWin,
-      avgLoss,
-      expectancy,
-      maxDrawdown,
-    };
+    return { totalTrades, winRate, avgWin, avgLoss, expectancy, maxDrawdown };
   }, [trades]);
 
   return (
@@ -162,11 +169,7 @@ export default function DashboardPage() {
           positive={metrics.expectancy >= 0}
           negative={metrics.expectancy < 0}
         />
-        <Metric
-          label="Max Drawdown"
-          value={`-$${metrics.maxDrawdown.toFixed(2)}`}
-          negative
-        />
+        <Metric label="Max Drawdown" value={`-$${metrics.maxDrawdown.toFixed(2)}`} negative />
       </div>
 
       {/* Top charts row */}
@@ -197,11 +200,7 @@ function Metric({
   return (
     <div className="bg-white border rounded p-4">
       <div className="text-sm text-gray-500 mb-1">{label}</div>
-      <div
-        className={`text-2xl font-semibold ${
-          positive ? "text-green-700" : negative ? "text-red-700" : ""
-        }`}
-      >
+      <div className={`text-2xl font-semibold ${positive ? "text-green-700" : negative ? "text-red-700" : ""}`}>
         {value}
       </div>
     </div>
