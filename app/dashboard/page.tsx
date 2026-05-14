@@ -37,6 +37,7 @@ function buildRDistribution(rs: number[]) {
 
 export default function DashboardPage() {
   const { trades } = useTrades();
+
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -91,6 +92,28 @@ export default function DashboardPage() {
       .sort((a, b) => b.avgR - a.avgR);
   }, [filteredTrades]);
 
+  const rByStrategy = useMemo(() => {
+    const map = new Map<string, { totalR: number; count: number }>();
+
+    for (const t of filteredTrades) {
+      const strategy = (t.strategy || "Unassigned") as string;
+      const r = t.profit / t.risk;
+
+      const entry = map.get(strategy) ?? { totalR: 0, count: 0 };
+      entry.totalR += r;
+      entry.count += 1;
+      map.set(strategy, entry);
+    }
+
+    return Array.from(map.entries())
+      .map(([strategy, v]) => ({
+        strategy,
+        avgR: v.totalR / v.count,
+        trades: v.count,
+      }))
+      .sort((a, b) => b.avgR - a.avgR);
+  }, [filteredTrades]);
+
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900 p-8">
       <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
@@ -117,7 +140,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Metrics */}
+      {/* Core Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
         <Metric label="Trades" value={metrics.trades} />
         <Metric
@@ -140,30 +163,13 @@ export default function DashboardPage() {
       {/* R Expectancy by Symbol */}
       <div className="bg-white border rounded p-4 mb-8">
         <h2 className="text-lg font-semibold mb-4">R Expectancy by Symbol</h2>
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="px-4 py-2 text-left">Symbol</th>
-              <th className="px-4 py-2 text-right">Avg R</th>
-              <th className="px-4 py-2 text-right">Trades</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rBySymbol.map((s) => (
-              <tr key={s.symbol} className="border-t">
-                <td className="px-4 py-2">{s.symbol}</td>
-                <td
-                  className={`px-4 py-2 text-right ${
-                    s.avgR >= 0 ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {s.avgR.toFixed(2)}
-                </td>
-                <td className="px-4 py-2 text-right">{s.trades}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SimpleTable rows={rBySymbol} firstHeader="Symbol" />
+      </div>
+
+      {/* ✅ R Expectancy by Strategy */}
+      <div className="bg-white border rounded p-4 mb-8">
+        <h2 className="text-lg font-semibold mb-4">R Expectancy by Strategy</h2>
+        <SimpleTable rows={rByStrategy} firstHeader="Strategy" />
       </div>
 
       {/* R Distribution */}
@@ -183,6 +189,52 @@ export default function DashboardPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/* ───────── reusable table ───────── */
+
+function SimpleTable({
+  rows,
+  firstHeader,
+}: {
+  rows: { avgR: number; trades: number }[] & Record<string, any>[];
+  firstHeader: string;
+}) {
+  return (
+    <table className="min-w-full text-sm">
+      <thead className="bg-gray-100">
+        <tr>
+          <th className="px-4 py-2 text-left">{firstHeader}</th>
+          <th className="px-4 py-2 text-right">Avg R</th>
+          <th className="px-4 py-2 text-right">Trades</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r[firstHeader.toLowerCase()] ?? r.strategy ?? r.symbol} className="border-t">
+            <td className="px-4 py-2 font-medium">
+              {r[firstHeader.toLowerCase()] ?? r.strategy ?? r.symbol}
+            </td>
+            <td
+              className={`px-4 py-2 text-right font-semibold ${
+                r.avgR >= 0 ? "text-green-700" : "text-red-700"
+              }`}
+            >
+              {r.avgR.toFixed(2)}
+            </td>
+            <td className="px-4 py-2 text-right">{r.trades}</td>
+          </tr>
+        ))}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={3} className="px-4 py-4 text-center text-gray-500">
+              No data available.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }
 
