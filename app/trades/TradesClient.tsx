@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
 
 export default function TradesClient() {
@@ -10,16 +10,22 @@ export default function TradesClient() {
   const [form, setForm] = useState({
     date: today,
     symbol: "",
+    strategy: "", // ✅ NEW field for required Trade.strategy
     side: "Buy" as "Buy" | "Sell",
     quantity: 0,
     entry: 0,
     exit: 0,
-    risk: 0, // ✅ NEW
+    risk: 0,
   });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
 
+    const symbol = form.symbol.trim().toUpperCase();
+    const strategy = (form.strategy || "Unassigned").trim();
+
+    if (!symbol) return;
+    if (form.quantity <= 0 || form.entry <= 0 || form.exit <= 0) return;
     if (form.risk <= 0) return;
 
     const profit =
@@ -30,7 +36,8 @@ export default function TradesClient() {
     const trade: Trade = {
       id: Date.now(),
       date: form.date,
-      symbol: form.symbol.toUpperCase(),
+      symbol,
+      strategy, // ✅ REQUIRED — fixes your build error
       side: form.side,
       quantity: form.quantity,
       entry: form.entry,
@@ -40,32 +47,166 @@ export default function TradesClient() {
     };
 
     addTrade(trade);
-    setForm({ ...form, symbol: "", quantity: 0, entry: 0, exit: 0, risk: 0 });
+
+    // reset (keep date)
+    setForm({
+      date: today,
+      symbol: "",
+      strategy: "",
+      side: "Buy",
+      quantity: 0,
+      entry: 0,
+      exit: 0,
+      risk: 0,
+    });
   }
 
   return (
-    <main className="p-8 bg-gray-50 min-h-screen">
-      <h1 className="text-3xl font-bold mb-4">Trades</h1>
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-3xl font-bold">Trades</h1>
+
+        <button
+          onClick={clearTrades}
+          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500"
+        >
+          Clear All
+        </button>
+      </div>
 
       <form
         onSubmit={submit}
         className="bg-white border rounded p-4 grid grid-cols-2 gap-4 mb-6"
       >
-        <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-        <input placeholder="Symbol" value={form.symbol} onChange={(e) => setForm({ ...form, symbol: e.target.value })} />
-        <input type="number" placeholder="Qty" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: +e.target.value })} />
-        <input type="number" placeholder="Entry" value={form.entry} onChange={(e) => setForm({ ...form, entry: +e.target.value })} />
-        <input type="number" placeholder="Exit" value={form.exit} onChange={(e) => setForm({ ...form, exit: +e.target.value })} />
-        <input type="number" placeholder="Risk ($)" value={form.risk} onChange={(e) => setForm({ ...form, risk: +e.target.value })} />
+        <input
+          type="date"
+          value={form.date}
+          onChange={(e) => setForm({ ...form, date: e.target.value })}
+          className="border rounded px-3 py-2"
+          required
+        />
 
-        <button className="col-span-2 bg-green-600 text-white py-2 rounded">
+        <input
+          placeholder="Symbol (e.g. AAPL)"
+          value={form.symbol}
+          onChange={(e) => setForm({ ...form, symbol: e.target.value })}
+          className="border rounded px-3 py-2"
+          required
+        />
+
+        <input
+          placeholder='Strategy (e.g. "ORB", "VWAP")'
+          value={form.strategy}
+          onChange={(e) => setForm({ ...form, strategy: e.target.value })}
+          className="border rounded px-3 py-2"
+        />
+
+        <select
+          value={form.side}
+          onChange={(e) =>
+            setForm({ ...form, side: e.target.value as "Buy" | "Sell" })
+          }
+          className="border rounded px-3 py-2"
+        >
+          <option value="Buy">Buy (Long)</option>
+          <option value="Sell">Sell (Short)</option>
+        </select>
+
+        <input
+          type="number"
+          placeholder="Quantity"
+          value={form.quantity}
+          onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+          className="border rounded px-3 py-2"
+          required
+        />
+
+        <input
+          type="number"
+          step="0.01"
+          placeholder="Entry Price"
+          value={form.entry}
+          onChange={(e) => setForm({ ...form, entry: Number(e.target.value) })}
+          className="border rounded px-3 py-2"
+          required
+        />
+
+        <input
+          type="number"
+          step="0.01"
+          placeholder="Exit Price"
+          value={form.exit}
+          onChange={(e) => setForm({ ...form, exit: Number(e.target.value) })}
+          className="border rounded px-3 py-2"
+          required
+        />
+
+        <input
+          type="number"
+          step="0.01"
+          placeholder="Risk ($) — required for R metrics"
+          value={form.risk}
+          onChange={(e) => setForm({ ...form, risk: Number(e.target.value) })}
+          className="border rounded px-3 py-2"
+          required
+        />
+
+        <button
+          type="submit"
+          className="col-span-2 bg-green-600 text-white py-2 rounded hover:bg-green-500"
+        >
           Add Trade
         </button>
       </form>
 
-      <button onClick={clearTrades} className="bg-red-600 text-white px-4 py-2 rounded">
-        Clear All
-      </button>
+      <div className="bg-white border rounded overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="px-4 py-2 text-left">Date</th>
+              <th className="px-4 py-2 text-left">Symbol</th>
+              <th className="px-4 py-2 text-left">Strategy</th>
+              <th className="px-4 py-2 text-right">Profit</th>
+              <th className="px-4 py-2 text-right">Risk</th>
+              <th className="px-4 py-2 text-right">R</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trades.map((t) => {
+              const r = t.risk > 0 ? t.profit / t.risk : 0;
+              return (
+                <tr key={t.id} className="border-t">
+                  <td className="px-4 py-2">{t.date}</td>
+                  <td className="px-4 py-2 font-medium">{t.symbol}</td>
+                  <td className="px-4 py-2">{t.strategy}</td>
+                  <td
+                    className={`px-4 py-2 text-right font-semibold ${
+                      t.profit >= 0 ? "text-green-700" : "text-red-700"
+                    }`}
+                  >
+                    {t.profit.toFixed(2)}
+                  </td>
+                  <td className="px-4 py-2 text-right">{t.risk.toFixed(2)}</td>
+                  <td
+                    className={`px-4 py-2 text-right font-semibold ${
+                      r >= 0 ? "text-green-700" : "text-red-700"
+                    }`}
+                  >
+                    {r.toFixed(2)}
+                  </td>
+                </tr>
+              );
+            })}
+            {trades.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                  No trades yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }
