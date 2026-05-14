@@ -11,6 +11,7 @@ export type Trade = {
   entry: number;
   exit: number;
   profit: number;
+  risk: number; // ✅ NEW
 };
 
 type TradesContextType = {
@@ -20,25 +21,18 @@ type TradesContextType = {
 };
 
 const TradesContext = createContext<TradesContextType | null>(null);
-
-const STORAGE_KEY = "trading_journal_trades";
+const STORAGE_KEY = "trades";
 
 export function TradesProvider({ children }: { children: React.ReactNode }) {
   const [trades, setTrades] = useState<Trade[]>([]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setTrades(JSON.parse(stored));
-      }
-    } catch {}
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) setTrades(JSON.parse(stored));
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(trades));
-    } catch {}
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(trades));
   }, [trades]);
 
   function addTrade(trade: Trade) {
@@ -47,7 +41,6 @@ export function TradesProvider({ children }: { children: React.ReactNode }) {
 
   function clearTrades() {
     setTrades([]);
-    localStorage.removeItem(STORAGE_KEY);
   }
 
   return (
@@ -57,20 +50,10 @@ export function TradesProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/**
- * ✅ SSR-safe hook
- * Returns defaults during build/prerender
- */
 export function useTrades() {
-  const context = useContext(TradesContext);
-
-  if (!context) {
-    return {
-      trades: [],
-      addTrade: () => {},
-      clearTrades: () => {},
-    };
-  }
-
-  return context;
+  const ctx = useContext(TradesContext);
+  if (!ctx)
+    return { trades: [], addTrade: () => {}, clearTrades: () => {} };
+  return ctx;
 }
+``
