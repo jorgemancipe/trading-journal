@@ -16,7 +16,7 @@ function timestampString() {
   return `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
 }
 
-/** RFC4180-ish CSV escaping: wrap in quotes, escape quotes, preserve commas/newlines */
+/** RFC4180-ish escaping: wrap in quotes + escape quotes */
 function csvCell(value: unknown) {
   if (value === null || value === undefined) return '""';
   const s = String(value).replace(/"/g, '""');
@@ -42,7 +42,7 @@ function downloadCSV(csvText: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function exportTradesToCSV(trades: Trade[]) {
+function exportTradesCSV(trades: Trade[], filenamePrefix: string) {
   if (!trades || trades.length === 0) return;
 
   const rows: unknown[][] = [
@@ -52,20 +52,24 @@ function exportTradesToCSV(trades: Trade[]) {
       t.symbol,
       t.side,
       t.quantity,
-      t.entry,
-      t.exit,
+      t.entry.toFixed(2),
+      t.exit.toFixed(2),
       t.profit.toFixed(2),
     ]),
   ];
 
   const csv = buildCSV(rows);
-  downloadCSV(csv, `trades-${timestampString()}.csv`);
+  downloadCSV(csv, `${filenamePrefix}-${timestampString()}.csv`);
 }
+
+type SideFilter = "All" | "Buy" | "Sell";
+type OutcomeFilter = "All" | "Wins" | "Losses" | "Breakeven";
 
 export default function TradesClient() {
   const { trades, addTrade, clearTrades } = useTrades();
-  const [showForm, setShowForm] = useState(false);
 
+  // ---- form state ----
+  const [showForm, setShowForm] = useState(false);
   const today = new Date().toISOString().split("T")[0];
 
   const [form, setForm] = useState({
@@ -77,15 +81,18 @@ export default function TradesClient() {
     exit: 0,
   });
 
+  // ---- filter state ----
+  const [symbolFilter, setSymbolFilter] = useState("");
+  const [sideFilter, setSideFilter] = useState<SideFilter>("All");
+  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("All");
+  const [dateFrom, setDateFrom] = useState(""); // yyyy-mm-dd
+  const [dateTo, setDateTo] = useState("");   // yyyy-mm-dd
+
   const liveProfit = useMemo(() => {
     const qty = Number(form.quantity);
     const entry = Number(form.entry);
     const exit = Number(form.exit);
-
     if (qty <= 0 || entry <= 0 || exit <= 0) return 0;
-
-    // Buy (Long): (exit - entry) * qty
-    // Sell (Short): (entry - exit) * qty
     return form.side === "Buy" ? (exit - entry) * qty : (entry - exit) * qty;
   }, [form]);
 
@@ -127,6 +134,43 @@ export default function TradesClient() {
     setShowForm(false);
   }
 
+  // ---- filtered trades ----
+  const filteredTrades = useMemo(() => {
+    const sym = symbolFilter.trim().toUpperCase();
+
+    return trades.filter((t) => {
+      // Symbol
+      if (sym && !t.symbol.includes(sym)) return false;
+
+      // Side
+      if (sideFilter !== "All" && t.side !== sideFilter) return false;
+
+      // Outcome
+      if (outcomeFilter === "Wins" && !(t.profit > 0)) return false;
+      if (outcomeFilter === "Losses" && !(t.profit < 0)) return false;
+      if (outcomeFilter === "Breakeven" && !(t.profit === 0)) return false;
+
+      // Date range (yyyy-mm-dd string compares correctly)
+      if (dateFrom && t.date < dateFrom) return false;
+      if (dateTo && t.date > dateTo) return false;
+
+      return true;
+    });
+  }, [trades, symbolFilter, sideFilter, outcomeFilter, dateFrom, dateTo]);
+
+  const filteredPL = useMemo(
+    () => filteredTrades.reduce((sum, t) => sum + t.profit, 0),
+    [filteredTrades]
+  );
+
+  function resetFilters() {
+    setSymbolFilter("");
+    setSideFilter("All");
+    setOutcomeFilter("All");
+    setDateFrom("");
+    setDateTo("");
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900 p-8">
       <div className="flex justify-between items-center mb-4">
@@ -141,12 +185,25 @@ export default function TradesClient() {
           </button>
 
           <button
-            onClick={() => exportTradesToCSV(trades)}
+            onClick={() => exportTradesCSV(trades, "trades")}
             className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
             disabled={!trades || trades.length === 0}
-            title={!trades || trades.length === 0 ? "No trades to export" : "Export trades CSV"}
+            title={!trades || trades.length === 0 ? "No trades to export" : "Export all trades"}
           >
-            Export CSV
+            Export All CSV
+          </button>
+
+          <button
+            onClick={() => exportTradesCSV(filteredTrades, "filtered-trades")}
+            className="px-4 py-2 bg-emerald-700 text-white rounded hover:bg-emerald-600 transition"
+            disabled={!filteredTrades || filteredTrades.length === 0}
+            title={
+              !filteredTrades || filteredTrades.length === 0
+                ? "No filtered trades to export"
+                : "Export filtered trades"
+            }
+          >
+            Export Filtered CSV
           </button>
 
           <button
@@ -158,6 +215,84 @@ export default function TradesClient() {
         </div>
       </div>
 
+      {/* Filters */}
+      <div className="mb-4 bg-white border rounded p-4">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 mb-1">Symbol</label>
+            <input
+              value={symbolFilter}
+              onChange={(e) => setSymbolFilter(e.target.value)}
+              placeholder="e.g. AAPL"
+              className="border rounded px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 mb-1">Side</label>
+            <select
+              value={sideFilter}
+              onChange={(e) => setSideFilter(e.target.value as SideFilter)}
+              className="border rounded px-3 py-2 text-sm"
+            >
+              <option value="All">All</option>
+              <option value="Buy">Buy (Long)</option>
+              <option value="Sell">Sell (Short)</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 mb-1">Outcome</label>
+            <select
+              value={outcomeFilter}
+              onChange={(e) => setOutcomeFilter(e.target.value as OutcomeFilter)}
+              className="border rounded px-3 py-2 text-sm"
+            >
+              <option value="All">All</option>
+              <option value="Wins">Wins</option>
+              <option value="Losses">Losses</option>
+              <option value="Breakeven">Break-even</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 mb-1">Date From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="border rounded px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-600 mb-1">Date To</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="border rounded px-3 py-2 text-sm"
+            />
+          </div>
+
+          <button
+            onClick={resetFilters}
+            className="px-4 py-2 bg-gray-200 text-gray-900 rounded hover:bg-gray-300 transition text-sm"
+          >
+            Reset Filters
+          </button>
+
+          <div className="ml-auto text-sm text-gray-700">
+            Showing <span className="font-semibold">{filteredTrades.length}</span> of{" "}
+            <span className="font-semibold">{trades.length}</span> trades • Filtered P/L:{" "}
+            <span className={filteredPL >= 0 ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}>
+              ${filteredPL.toFixed(2)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* New Trade Form */}
       {showForm && (
         <form
           onSubmit={handleSubmit}
@@ -245,6 +380,7 @@ export default function TradesClient() {
         </form>
       )}
 
+      {/* Trades Table (filtered) */}
       <div className="overflow-x-auto bg-white border rounded">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
@@ -260,7 +396,7 @@ export default function TradesClient() {
           </thead>
 
           <tbody>
-            {trades.map((t) => (
+            {filteredTrades.map((t) => (
               <tr key={t.id} className="border-t hover:bg-gray-50">
                 <td className="px-4 py-2">{t.date}</td>
                 <td className="px-4 py-2 font-medium">{t.symbol}</td>
@@ -277,6 +413,13 @@ export default function TradesClient() {
                 </td>
               </tr>
             ))}
+            {filteredTrades.length === 0 && (
+              <tr>
+                <td className="px-4 py-6 text-center text-gray-500" colSpan={7}>
+                  No trades match the current filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
