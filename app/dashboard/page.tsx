@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
-/* ───────────── helpers ───────────── */
+/* ───────── helpers ───────── */
 
 function calculateMaxDrawdown(trades: { profit: number }[]) {
   let equity = 0;
@@ -15,30 +15,6 @@ function calculateMaxDrawdown(trades: { profit: number }[]) {
     maxDD = Math.max(maxDD, peak - equity);
   }
   return maxDD;
-}
-
-function calculateStreaks(trades: { profit: number }[]) {
-  let win = 0;
-  let loss = 0;
-  let maxWin = 0;
-  let maxLoss = 0;
-
-  for (const t of trades) {
-    if (t.profit > 0) {
-      win++;
-      loss = 0;
-    } else if (t.profit < 0) {
-      loss++;
-      win = 0;
-    } else {
-      win = 0;
-      loss = 0;
-    }
-    maxWin = Math.max(maxWin, win);
-    maxLoss = Math.max(maxLoss, loss);
-  }
-
-  return { maxWin, maxLoss };
 }
 
 function buildRDistribution(rs: number[]) {
@@ -57,11 +33,10 @@ function buildRDistribution(rs: number[]) {
   }));
 }
 
-/* ───────────── page ───────────── */
+/* ───────── page ───────── */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
-
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -84,31 +59,22 @@ export default function DashboardPage() {
 
     const profitFactor =
       grossLoss === 0
-        ? grossProfit > 0
-          ? Infinity
-          : 0
+        ? grossProfit > 0 ? Infinity : 0
         : grossProfit / grossLoss;
-
-    const avgR = rs.length ? rs.reduce((s, r) => s + r, 0) / rs.length : 0;
 
     return {
       trades: filteredTrades.length,
       profitFactor,
-      avgR,
+      avgR: rs.length ? rs.reduce((s, r) => s + r, 0) / rs.length : 0,
       largestRWin: rs.length ? Math.max(...rs) : 0,
       largestRLoss: rs.length ? Math.min(...rs) : 0,
-      streaks: calculateStreaks(filteredTrades),
       maxDrawdown: calculateMaxDrawdown(filteredTrades),
       rDist: buildRDistribution(rs),
     };
   }, [filteredTrades]);
 
   const rBySymbol = useMemo(() => {
-    const map = new Map<
-      string,
-      { totalR: number; count: number }
-    >();
-
+    const map = new Map<string, { totalR: number; count: number }>();
     for (const t of filteredTrades) {
       const r = t.profit / t.risk;
       const entry = map.get(t.symbol) ?? { totalR: 0, count: 0 };
@@ -116,7 +82,6 @@ export default function DashboardPage() {
       entry.count += 1;
       map.set(t.symbol, entry);
     }
-
     return Array.from(map.entries())
       .map(([symbol, v]) => ({
         symbol,
@@ -152,16 +117,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Top Metrics */}
+      {/* Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
         <Metric label="Trades" value={metrics.trades} />
         <Metric
           label="Profit Factor"
-          value={
-            metrics.profitFactor === Infinity
-              ? "∞"
-              : metrics.profitFactor.toFixed(2)
-          }
+          value={metrics.profitFactor === Infinity ? "∞" : metrics.profitFactor.toFixed(2)}
           positive={metrics.profitFactor >= 1}
           negative={metrics.profitFactor < 1}
         />
@@ -171,29 +132,14 @@ export default function DashboardPage() {
           positive={metrics.avgR >= 0}
           negative={metrics.avgR < 0}
         />
-        <Metric
-          label="Largest R Win"
-          value={metrics.largestRWin.toFixed(2)}
-          positive
-        />
-        <Metric
-          label="Largest R Loss"
-          value={metrics.largestRLoss.toFixed(2)}
-          negative
-        />
-        <Metric
-          label="Max Drawdown"
-          value={`$${metrics.maxDrawdown.toFixed(2)}`}
-          negative
-        />
+        <Metric label="Largest R Win" value={metrics.largestRWin.toFixed(2)} positive />
+        <Metric label="Largest R Loss" value={metrics.largestRLoss.toFixed(2)} negative />
+        <Metric label="Max Drawdown" value={`$${metrics.maxDrawdown.toFixed(2)}`} negative />
       </div>
 
       {/* R Expectancy by Symbol */}
       <div className="bg-white border rounded p-4 mb-8">
-        <h2 className="text-lg font-semibold mb-4">
-          R Expectancy by Symbol
-        </h2>
-
+        <h2 className="text-lg font-semibold mb-4">R Expectancy by Symbol</h2>
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
@@ -205,35 +151,5 @@ export default function DashboardPage() {
           <tbody>
             {rBySymbol.map((s) => (
               <tr key={s.symbol} className="border-t">
-                <td className="px-4 py-2 font-medium">{s.symbol}</td>
+                <td className="px-4 py-2">{s.symbol}</td>
                 <td
-                  className={`px-4 py-2 text-right font-semibold ${
-                    s.avgR >= 0 ? "text-green-700" : "text-red-700"
-                  }`}
-                >
-                  {s.avgR.toFixed(2)}
-                </td>
-                <td className="px-4 py-2 text-right">{s.trades}</td>
-              </tr>
-            ))}
-            {rBySymbol.length === 0 && (
-              <tr>
-                <td
-                  colSpan={3}
-                  className="px-4 py-4 text-center text-gray-500"
-                >
-                  No trades in range.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* R Distribution */}
-      <div className="bg-white border rounded p-4">
-        <h2 className="text-lg font-semibold mb-4">R Distribution</h2>
-        <div className="flex items-end gap-4 h-48">
-          {metrics.rDist.map((b) => (
-            <div key={b.label} className="flex flex-col items-center w-16">
-              <div
