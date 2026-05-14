@@ -6,11 +6,7 @@ import { useTrades } from "../context/TradesContext";
 /* ---------- types ---------- */
 
 type Session = "Open" | "Midday" | "Power Hour";
-
-type Rule = {
-  strategy: string;
-  session: Session;
-};
+type TradeLite = { profit: number; risk: number };
 
 /* ---------- helpers ---------- */
 
@@ -26,7 +22,15 @@ function getSessionFromDate(dateStr: string): Session | null {
   return null;
 }
 
-function avgR(trades: { profit: number; risk: number }[]) {
+function cumulativeEquity(trades: TradeLite[]) {
+  let equity = 0;
+  return trades.map((t) => {
+    equity += t.profit;
+    return equity;
+  });
+}
+
+function avgR(trades: TradeLite[]) {
   if (trades.length === 0) return 0;
   return (
     trades.reduce((s, t) => s + t.profit / t.risk, 0) / trades.length
@@ -45,7 +49,7 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* Build strategy × session stats */
+  /* Strategy × Session aggregation */
   const matrix = useMemo(() => {
     const map = new Map<
       string,
@@ -59,11 +63,9 @@ export default function DashboardPage() {
       const strategy = t.strategy || "Unassigned";
       const r = t.profit / t.risk;
 
-      if (!map.has(strategy)) {
-        map.set(strategy, new Map());
-      }
-
+      if (!map.has(strategy)) map.set(strategy, new Map());
       const row = map.get(strategy)!;
+
       const cell = row.get(session) ?? { totalR: 0, count: 0 };
       cell.totalR += r;
       cell.count += 1;
@@ -74,9 +76,8 @@ export default function DashboardPage() {
   }, [validTrades]);
 
   /* Auto‑rules */
-  const rules: Rule[] = useMemo(() => {
-    const out: Rule[] = [];
-
+  const rules = useMemo(() => {
+    const out: { strategy: string; session: Session }[] = [];
     for (const [strategy, row] of matrix.entries()) {
       for (const [session, cell] of row.entries()) {
         const r = cell.totalR / cell.count;
@@ -85,38 +86,41 @@ export default function DashboardPage() {
         }
       }
     }
-
     return out;
   }, [matrix, minTrades]);
 
-  /* Simulated application */
+  /* Simulated filtering */
   const simulatedTrades = useMemo(() => {
     if (!simulate) return validTrades;
 
     return validTrades.filter((t) => {
       const s = getSessionFromDate(t.date);
       if (!s) return true;
-
       return !rules.some(
         (r) => r.strategy === t.strategy && r.session === s
       );
     });
   }, [simulate, validTrades, rules]);
 
+  /* Equity curves */
+  const baseCurve = cumulativeEquity(validTrades);
+  const simCurve = cumulativeEquity(simulatedTrades);
+
+  const maxLen = Math.max(baseCurve.length, simCurve.length);
+
   const originalAvgR = avgR(validTrades);
   const simulatedAvgR = avgR(simulatedTrades);
-  const deltaCombined = simulatedAvgR - originalAvgR;
 
   return (
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900">
       <h1 className="text-3xl font-bold mb-6">
-        Simulated “Apply Rules”
+        Equity Curve Comparison (Simulation)
       </h1>
 
       {/* Controls */}
       <div className="bg-white border rounded p-4 mb-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium">
+          <label className="text-sm font-medium">
             Minimum trades for rules: {minTrades}
           </label>
           <input
@@ -132,87 +136,3 @@ export default function DashboardPage() {
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
-            checked={simulate}
-            onChange={(e) => setSimulate(e.target.checked)}
-          />
-          Simulate Apply Rules
-        </label>
-      </div>
-
-      {/* Overall simulation result */}
-      <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-2">Overall Impact</h2>
-        <div className="grid grid-cols-3 gap-4 text-sm">
-          <div>Original Avg R: {originalAvgR.toFixed(2)}</div>
-          <div>Simulated Avg R: {simulatedAvgR.toFixed(2)}</div>
-          <div
-            className={
-              deltaCombined >= 0
-                ? "text-green-700 font-semibold"
-                : "text-red-700 font-semibold"
-            }
-          >
-            Δ Avg R: {deltaCombined >= 0 ? "+" : ""}
-            {deltaCombined.toFixed(2)}
-          </div>
-        </div>
-      </div>
-
-      {/* ✅ Per‑Rule Impact Breakdown */}
-      <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-3">
-          Per‑Rule Impact Breakdown
-        </h2>
-
-        {rules.length === 0 ? (
-          <div className="text-sm text-gray-500">
-            No rules available at this threshold.
-          </div>
-        ) : (
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="px-3 py-2 text-left">Rule</th>
-                <th className="px-3 py-2 text-right">Trades Removed</th>
-                <th className="px-3 py-2 text-right">Δ Avg R</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((rule, i) => {
-                const filtered = validTrades.filter((t) => {
-                  const s = getSessionFromDate(t.date);
-                  return !(
-                    t.strategy === rule.strategy && s === rule.session
-                  );
-                });
-
-                const delta = avgR(filtered) - originalAvgR;
-                const removed = validTrades.length - filtered.length;
-
-                return (
-                  <tr key={i} className="border-t">
-                    <td className="px-3 py-2">
-                      Disable <strong>{rule.strategy}</strong> during{" "}
-                      <strong>{rule.session}</strong>
-                    </td>
-                    <td className="px-3 py-2 text-right">{removed}</td>
-                    <td
-                      className={`px-3 py-2 text-right font-semibold ${
-                        delta >= 0
-                          ? "text-green-700"
-                          : "text-red-700"
-                      }`}
-                    >
-                      {delta >= 0 ? "+" : ""}
-                      {delta.toFixed(2)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </main>
-  );
-}
