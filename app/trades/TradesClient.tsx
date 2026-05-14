@@ -2,7 +2,44 @@
 
 import { useMemo, useState } from "react";
 import { useTrades, Trade } from "../context/TradesContext";
+function exportTradesToCSV(trades: Trade[]) {
+  if (trades.length === 0) return;
 
+  const headers = [
+    "Date",
+    "Symbol",
+    "Side",
+    "Quantity",
+    "Entry",
+    "Exit",
+    "Profit",
+  ];
+
+  const rows = trades.map((t) => [
+    t.date,
+    t.symbol,
+    t.side,
+    t.quantity,
+    t.entry,
+    t.exit,
+    t.profit.toFixed(2),
+  ]);
+
+  const csv =
+    [headers, ...rows]
+      .map((row) => row.join(","))
+      .join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "trades.csv";
+  link.click();
+
+  URL.revokeObjectURL(url);
+}
 export default function TradesClient() {
   const { trades, addTrade, clearTrades } = useTrades();
   const [showForm, setShowForm] = useState(false);
@@ -67,17 +104,27 @@ export default function TradesClient() {
         <h1 className="text-3xl font-bold">Trades</h1>
 
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
-          >
-            New Trade
-          </button>
+  <button
+    onClick={() => setShowForm((v) => !v)}
+    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
+  >
+    New Trade
+  </button>
 
-          <button
-            onClick={clearTrades}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500"
-          >
+  <button
+    onClick={() => exportTradesToCSV(trades)}
+    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500"
+  >
+    Export CSV
+  </button>
+
+  <button
+    onClick={clearTrades}
+    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500"
+  >
+    Clear All
+  </button>
+</div>
             Clear All
           </button>
         </div>
