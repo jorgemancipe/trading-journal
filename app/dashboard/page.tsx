@@ -153,3 +153,62 @@ export default function DashboardPage() {
               <tr key={s.symbol} className="border-t">
                 <td className="px-4 py-2">{s.symbol}</td>
                 <td
+                  className={`px-4 py-2 text-right ${
+                    s.avgR >= 0 ? "text-green-700" : "text-red-700"
+                  }`}
+                >
+                  {s.avgR.toFixed(2)}
+                </td>
+                <td className="px-4 py-2 text-right">{s.trades}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* R Distribution */}
+      <div className="bg-white border rounded p-4">
+        <h2 className="text-lg font-semibold mb-4">R Distribution</h2>
+        <div className="flex items-end gap-4 h-48">
+          {metrics.rDist.map((b) => (
+            <div key={b.label} className="flex flex-col items-center w-16">
+              <div
+                className="bg-blue-600 w-full"
+                style={{ height: `${b.count * 20}px`, minHeight: 8 }}
+              />
+              <div className="text-xs mt-2">{b.label}</div>
+              <div className="text-xs text-gray-500">{b.count}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ───────── metric card ───────── */
+
+function Metric({
+  label,
+  value,
+  positive,
+  negative,
+}: {
+  label: string;
+  value: string | number;
+  positive?: boolean;
+  negative?: boolean;
+}) {
+  return (
+    <div className="bg-white border rounded p-4">
+      <div className="text-sm text-gray-500">{label}</div>
+      <div
+        className={`text-2xl font-semibold ${
+          positive ? "text-green-700" : negative ? "text-red-700" : ""
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
