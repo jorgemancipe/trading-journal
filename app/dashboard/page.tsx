@@ -48,13 +48,38 @@ function exportDashboardMetrics(metrics: {
   ];
 
   const csv = rows.map((r) => r.join(",")).join("\n");
+  downloadCSV(csv, "dashboard-metrics.csv");
+}
 
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+/** Export all trades to CSV */
+function exportAllTrades(trades: any[]) {
+  if (!trades || trades.length === 0) return;
+
+  const headers = ["Date", "Symbol", "Side", "Quantity", "Entry", "Exit", "Profit"];
+
+  const rows = trades.map((t) => [
+    t.date ?? "",
+    t.symbol ?? "",
+    t.side ?? "",
+    String(t.quantity ?? ""),
+    String(t.entry ?? ""),
+    String(t.exit ?? ""),
+    typeof t.profit === "number" ? t.profit.toFixed(2) : String(t.profit ?? ""),
+  ]);
+
+  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+  downloadCSV(csv, "trades.csv");
+}
+
+/** Shared downloader */
+function downloadCSV(csvText: string, filename: string) {
+  const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
 
   const link = document.createElement("a");
   link.href = url;
-  link.download = "dashboard-metrics.csv";
+  link.download = filename;
+
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -67,8 +92,8 @@ export default function DashboardPage() {
 
   const metrics = useMemo(() => {
     const totalTrades = trades.length;
-    const wins = trades.filter((t) => t.profit > 0);
-    const losses = trades.filter((t) => t.profit < 0);
+    const wins = trades.filter((t: any) => t.profit > 0);
+    const losses = trades.filter((t: any) => t.profit < 0);
 
     const winRate =
       totalTrades === 0 ? 0 : (wins.length / totalTrades) * 100;
@@ -76,12 +101,12 @@ export default function DashboardPage() {
     const avgWin =
       wins.length === 0
         ? 0
-        : wins.reduce((s, t) => s + t.profit, 0) / wins.length;
+        : wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length;
 
     const avgLoss =
       losses.length === 0
         ? 0
-        : losses.reduce((s, t) => s + t.profit, 0) / losses.length;
+        : losses.reduce((s: number, t: any) => s + t.profit, 0) / losses.length;
 
     const expectancy =
       totalTrades === 0
@@ -103,15 +128,26 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900 p-8">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
         <h1 className="text-3xl font-bold">Dashboard</h1>
 
-        <button
-          onClick={() => exportDashboardMetrics(metrics)}
-          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
-        >
-          Export Metrics CSV
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => exportDashboardMetrics(metrics)}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition"
+          >
+            Export Metrics CSV
+          </button>
+
+          <button
+            onClick={() => exportAllTrades(trades)}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 transition"
+            disabled={!trades || trades.length === 0}
+            title={!trades || trades.length === 0 ? "No trades to export" : "Export all trades"}
+          >
+            Export Trades CSV
+          </button>
+        </div>
       </div>
 
       {/* Metrics */}
