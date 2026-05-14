@@ -11,7 +11,8 @@ export type Trade = {
   entry: number;
   exit: number;
   profit: number;
-  risk: number; // ✅ NEW
+  risk: number;
+  strategy: string; // ✅ NEW
 };
 
 type TradesContextType = {
@@ -28,7 +29,9 @@ export function TradesProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) setTrades(JSON.parse(stored));
+    if (stored) {
+      setTrades(JSON.parse(stored));
+    }
   }, []);
 
   useEffect(() => {
