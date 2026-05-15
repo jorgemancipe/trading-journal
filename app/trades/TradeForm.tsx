@@ -10,7 +10,9 @@ export default function TradeForm() {
   return (
     <div className="bg-white p-6 rounded border max-w-xl space-y-4">
 
-      <h2 className="text-xl font-semibold">New Trade</h2>
+     <h2 className="text-xl font-semibold text-gray-900">
+  New Trade
+</h2>
 
       {/* Symbol */}
       <div>
