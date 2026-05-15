@@ -36,6 +36,7 @@ function avgR(trades: { profit: number; risk: number }[]) {
 
 export default function DashboardPage() {
   const { trades } = useTrades();
+
   const [minTrades, setMinTrades] = useState(5);
 
   const validTrades = useMemo(
@@ -43,64 +44,86 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ✅ Split data (70/30 walk-forward) */
-  const splitIndex = Math.floor(validTrades.length * 0.7);
-  const trainTrades = validTrades.slice(0, splitIndex);
-  const testTrades = validTrades.slice(splitIndex);
+  /* ✅ rolling windows */
 
-  /* ---------- rule generation (TRAIN ONLY) ---------- */
+  const results = useMemo(() => {
+    if (validTrades.length < 20) return [];
 
-  const rules = useMemo(() => {
-    const map = new Map<string, Map<Session, { sum: number; count: number }>>();
+    const windowSize = Math.floor(validTrades.length * 0.5);
+    const step = Math.floor(validTrades.length * 0.2);
 
-    for (const t of trainTrades) {
-      const s = getSession(t.date);
-      if (!s) continue;
+    const out: {
+      trainAvg: number;
+      testAvg: number;
+      delta: number;
+    }[] = [];
 
-      const strat = t.strategy || "Unassigned";
-      const r = t.profit / t.risk;
+    for (let start = 0; start + windowSize * 2 < validTrades.length; start += step) {
+      const train = validTrades.slice(start, start + windowSize);
+      const test = validTrades.slice(start + windowSize, start + windowSize * 2);
 
-      if (!map.has(strat)) map.set(strat, new Map());
-      const row = map.get(strat)!;
+      /* ----- build rules on TRAIN ----- */
 
-      const cell = row.get(s) ?? { sum: 0, count: 0 };
-      cell.sum += r;
-      cell.count += 1;
-      row.set(s, cell);
-    }
+      const map = new Map<string, Map<Session, { sum: number; count: number }>>();
 
-    const out: Rule[] = [];
+      for (const t of train) {
+        const s = getSession(t.date);
+        if (!s) continue;
 
-    for (const [strat, row] of map.entries()) {
-      for (const [session, cell] of row.entries()) {
-        if (cell.count >= minTrades && cell.sum / cell.count < 0) {
-          out.push({ strategy: strat, session });
+        const strat = t.strategy || "Unassigned";
+        const r = t.profit / t.risk;
+
+        if (!map.has(strat)) map.set(strat, new Map());
+        const row = map.get(strat)!;
+
+        const cell = row.get(s) ?? { sum: 0, count: 0 };
+        cell.sum += r;
+        cell.count += 1;
+        row.set(s, cell);
+      }
+
+      const rules: Rule[] = [];
+
+      for (const [strat, row] of map.entries()) {
+        for (const [session, cell] of row.entries()) {
+          if (cell.count >= minTrades && cell.sum / cell.count < 0) {
+            rules.push({ strategy: strat, session });
+          }
         }
       }
+
+      /* ----- apply to TEST ----- */
+
+      const filtered = test.filter(t => {
+        const s = getSession(t.date);
+        if (!s) return true;
+        return !rules.some(
+          r => r.strategy === t.strategy && r.session === s
+        );
+      });
+
+      const trainAvg = avgR(train);
+      const testBase = avgR(test);
+      const testFiltered = avgR(filtered);
+
+      out.push({
+        trainAvg,
+        testAvg: testFiltered,
+        delta: testFiltered - testBase,
+      });
     }
 
     return out;
-  }, [trainTrades, minTrades]);
+  }, [validTrades, minTrades]);
 
-  /* ---------- apply rules ---------- */
+  /* ✅ aggregate */
 
-  function applyRules(trades: typeof validTrades, active: Rule[]) {
-    return trades.filter(t => {
-      const s = getSession(t.date);
-      if (!s) return true;
-      return !active.some(
-        r => r.strategy === t.strategy && r.session === s
-      );
-    });
-  }
+  const avgDelta =
+    results.length === 0
+      ? 0
+      : results.reduce((s, r) => s + r.delta, 0) / results.length;
 
-  /* ---------- metrics ---------- */
-
-  const trainBase = avgR(trainTrades);
-  const trainFiltered = avgR(applyRules(trainTrades, rules));
-
-  const testBase = avgR(testTrades);
-  const testFiltered = avgR(applyRules(testTrades, rules));
+  const positiveRuns = results.filter(r => r.delta > 0).length;
 
   /* ---------- UI ---------- */
 
@@ -108,12 +131,12 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        Walk‑Forward Validation
+        Rolling Walk‑Forward Validation
       </h1>
 
-      {/* Control */}
+      {/* control */}
       <div className="bg-white border rounded p-4 mb-6">
-        <label>Minimum trades: {minTrades}</label>
+        <label>Min trades: {minTrades}</label>
         <input
           type="range"
           min={1}
@@ -124,46 +147,47 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Train */}
+      {/* summary */}
       <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-2">Train Performance (In-Sample)</h2>
-        <div>Base Avg R: {trainBase.toFixed(2)}</div>
-        <div>Filtered Avg R: {trainFiltered.toFixed(2)}</div>
-        <div className="text-sm">
-          Δ: {(trainFiltered - trainBase).toFixed(2)}
-        </div>
-      </div>
+        <h2 className="font-semibold mb-2">Summary</h2>
 
-      {/* Test */}
-      <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-2">Test Performance (Out-of-Sample)</h2>
-        <div>Base Avg R: {testBase.toFixed(2)}</div>
-        <div>Filtered Avg R: {testFiltered.toFixed(2)}</div>
+        <div>Windows tested: {results.length}</div>
+        <div>Avg Δ R: {avgDelta.toFixed(2)}</div>
+
         <div
           className={
-            testFiltered >= testBase
-              ? "text-green-700"
-              : "text-red-700"
+            avgDelta >= 0 ? "text-green-700" : "text-red-700"
           }
         >
-          Δ: {(testFiltered - testBase).toFixed(2)}
+          Positive runs: {positiveRuns} / {results.length}
         </div>
       </div>
 
-      {/* Rules */}
+      {/* detailed */}
       <div className="bg-white border rounded p-4">
-        <h2 className="font-semibold mb-2">Generated Rules</h2>
+        <h2 className="font-semibold mb-2">Detailed Runs</h2>
 
-        {rules.length === 0 ? (
-          <p>No rules generated.</p>
+        {results.length === 0 ? (
+          <p>Not enough data.</p>
         ) : (
-          <ul className="text-sm space-y-1">
-            {rules.map((r, i) => (
-              <li key={i}>
-                Disable {r.strategy} @ {r.session}
-              </li>
-            ))}
-          </ul>
+          <table className="w-full text-sm">
+            <tbody>
+              {results.map((r, i) => (
+                <tr key={i} className="border-b">
+                  <td>Run {i + 1}</td>
+                  <td>Train R: {r.trainAvg.toFixed(2)}</td>
+                  <td>Test R: {r.testAvg.toFixed(2)}</td>
+                  <td
+                    className={
+                      r.delta >= 0 ? "text-green-700" : "text-red-700"
+                    }
+                  >
+                    Δ {r.delta.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
