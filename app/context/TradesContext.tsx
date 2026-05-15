@@ -4,7 +4,7 @@ import { createContext, useContext, useState } from "react";
 
 /* ---------- types ---------- */
 
-type Trade = {
+export type Trade = {
   id: number;
   symbol: string;
   entry: number;
