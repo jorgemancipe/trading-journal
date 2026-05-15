@@ -39,7 +39,6 @@ export default function DashboardPage() {
 
   const avg = avgR(validTrades);
   const recent = avgR(validTrades.slice(-20));
-
   const curve = equity(validTrades);
   const dd = maxDD(curve);
 
@@ -59,52 +58,47 @@ export default function DashboardPage() {
     allowedStrategies = ["ORB", "Momentum"];
   }
 
-  /* ---------- trade gate ---------- */
+  /* ---------- grading logic ---------- */
 
-  function evaluateTrade(t: any) {
+  function gradeTrade(t: any) {
     const strategy = t.strategy || "";
 
-    if (regime === "DANGER") {
+    // 🚨 F-grade (should NOT trade)
+    if (regime === "DANGER" || !allowedStrategies.includes(strategy)) {
       return {
-        status: "BLOCKED",
-        size: 0,
-        reason: "System unsafe (drawdown or negative edge)"
+        grade: "F",
+        color: "text-red-700",
+        reason: "Trade violates system rules"
       };
     }
 
-    if (!allowedStrategies.includes(strategy)) {
-      return {
-        status: "BLOCKED",
-        size: 0,
-        reason: "Wrong strategy for current regime"
-      };
-    }
-
+    // ⚠️ B-grade (okay but reduced)
     if (regime === "CHOPPY") {
       return {
-        status: "REDUCED",
-        size: 0.5,
-        reason: "Choppy market requires smaller size"
+        grade: "B",
+        color: "text-yellow-600",
+        reason: "Trade allowed but conditions not ideal"
       };
     }
 
+    // ✅ A-grade (perfect)
     return {
-      status: "APPROVED",
-      size: 1,
-      reason: "Optimal conditions"
+      grade: "A",
+      color: "text-green-700",
+      reason: "Trade aligned with system"
     };
   }
 
-  const evaluated = validTrades.map(t => ({
+  const gradedTrades = validTrades.map(t => ({
     ...t,
-    decision: evaluateTrade(t),
+    grade: gradeTrade(t),
   }));
 
-  /* ---------- counts ---------- */
+  /* ---------- stats ---------- */
 
-  const approved = evaluated.filter(t => t.decision.status === "APPROVED").length;
-  const reduced = evaluated.filter(t => t.decision.status === "REDUCED").length;
-  const blocked = evaluated.filter(t => t.decision.status === "BLOCKED").length;
+  const Acount = gradedTrades.filter(t => t.grade.grade === "A").length;
+  const Bcount = gradedTrades.filter(t => t.grade.grade === "B").length;
+  const Fcount = gradedTrades.filter(t => t.grade.grade === "F").length;
 
   /* ---------- UI ---------- */
 
@@ -112,13 +106,12 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-6xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        🤖 Auto‑Filled Trade Gate
+        🎯 Trade Grading System
       </h1>
 
       {/* System */}
       <div className="bg-white border p-4 rounded mb-6">
         <h2 className="font-semibold mb-2">System State</h2>
-
         <div>Regime: {regime}</div>
         <div>Avg R: {avg.toFixed(2)}</div>
         <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
@@ -126,51 +119,39 @@ export default function DashboardPage() {
 
       {/* Summary */}
       <div className="bg-white border p-4 rounded mb-6">
+        <h2 className="font-semibold mb-2">Grade Summary</h2>
 
-        <h2 className="font-semibold mb-2">Execution Summary</h2>
-
-        <div className="text-green-700">✅ Approved: {approved}</div>
-        <div className="text-yellow-600">⚠️ Reduced: {reduced}</div>
-        <div className="text-red-700">❌ Blocked: {blocked}</div>
-
+        <div className="text-green-700">A: {Acount}</div>
+        <div className="text-yellow-600">B: {Bcount}</div>
+        <div className="text-red-700">F: {Fcount}</div>
       </div>
 
-      {/* Trade list */}
+      {/* Trade Table */}
       <div className="bg-white border p-4 rounded">
 
-        <h2 className="font-semibold mb-3">
-          Trade Decisions
-        </h2>
+        <h2 className="font-semibold mb-3">Trade Evaluation</h2>
 
-        {evaluated.length === 0 ? (
+        {gradedTrades.length === 0 ? (
           <p>No trades available</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
                 <th className="text-left">Strategy</th>
-                <th className="text-left">Result</th>
-                <th className="text-left">Decision</th>
-                <th className="text-left">Reason</th>
+                <th>Result</th>
+                <th>Grade</th>
+                <th>Reason</th>
               </tr>
             </thead>
             <tbody>
-              {evaluated.map((t, i) => (
+              {gradedTrades.map((t, i) => (
                 <tr key={i} className="border-b">
                   <td>{t.strategy}</td>
                   <td>{t.profit.toFixed(2)}</td>
-                  <td
-                    className={
-                      t.decision.status === "APPROVED"
-                        ? "text-green-700"
-                        : t.decision.status === "REDUCED"
-                        ? "text-yellow-600"
-                        : "text-red-700"
-                    }
-                  >
-                    {t.decision.status}
+                  <td className={t.grade.color}>
+                    {t.grade.grade}
                   </td>
-                  <td>{t.decision.reason}</td>
+                  <td>{t.grade.reason}</td>
                 </tr>
               ))}
             </tbody>
@@ -182,3 +163,4 @@ export default function DashboardPage() {
     </main>
   );
 }
+``
