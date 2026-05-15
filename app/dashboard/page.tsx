@@ -1,15 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useTrades } from "../context/TradesContext";
 
 /* ---------- helpers ---------- */
 
 function avgR(trades: { profit: number; risk: number }[]) {
   if (!trades.length) return 0;
-  let sum = 0;
-  for (const t of trades) sum += t.profit / t.risk;
-  return sum / trades.length;
+  return trades.reduce((s, t) => s + t.profit / t.risk, 0) / trades.length;
 }
 
 function winRate(trades: { profit: number }[]) {
@@ -35,164 +33,98 @@ function maxDrawdown(curve: number[]) {
   return maxDD;
 }
 
-function avgWinLoss(trades: { profit: number; risk: number }[]) {
-  const wins = trades.filter(t => t.profit > 0);
-  const losses = trades.filter(t => t.profit < 0);
-
-  const avgWin =
-    wins.length === 0
-      ? 0
-      : wins.reduce((s, t) => s + t.profit / t.risk, 0) / wins.length;
-
-  const avgLoss =
-    losses.length === 0
-      ? 0
-      : Math.abs(
-          losses.reduce((s, t) => s + t.profit / t.risk, 0) / losses.length
-        );
-
-  return { avgWin, avgLoss };
-}
-
-/* ✅ Kelly */
-function kelly(win: number, avgWin: number, avgLoss: number) {
-  if (avgLoss === 0) return 0;
-
-  const b = avgWin / avgLoss;
-  const p = win;
-  const q = 1 - p;
-
-  const f = (b * p - q) / b;
-
-  return Math.max(0, f);
-}
-
-/* ✅ Adaptive drawdown scaling */
-function riskMultiplier(drawdown: number) {
-  if (drawdown < 0.1) return 1;
-  if (drawdown < 0.2) return 0.75;
-  if (drawdown < 0.3) return 0.5;
-  return 0.25;
-}
-
 /* ---------- page ---------- */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
+
+  const [alert, setAlert] = useState<string | null>(null);
 
   const validTrades = useMemo(
     () => trades.filter(t => t.risk > 0),
     [trades]
   );
 
-  /* ----- core metrics ----- */
+  /* ---------- metrics ---------- */
+
   const avg = avgR(validTrades);
   const wr = winRate(validTrades);
-
-  const { avgWin, avgLoss } = avgWinLoss(validTrades);
 
   const curve = equity(validTrades);
   const dd = maxDrawdown(curve);
 
-  /* ----- sizing ----- */
-  const kellySize = kelly(wr, avgWin, avgLoss);
-  const adaptiveSize = kellySize * riskMultiplier(dd);
+  /* ---------- system logic ---------- */
 
-  /* ----- system state ----- */
+  const edgeStrong = avg > 0.2;
+  const edgeWeak = avg > 0 && avg <= 0.2;
+  const noEdge = avg <= 0;
 
-  const hasEdge = avg > 0;
-  const safeDrawdown = dd < 0.25;
+  const safeDD = dd < 0.15;
+  const warningDD = dd >= 0.15 && dd < 0.25;
+  const badDD = dd >= 0.25;
 
-  const systemON = hasEdge && safeDrawdown;
+  /* ---------- alert engine ---------- */
+
+  useEffect(() => {
+    if (noEdge || badDD) {
+      setAlert("❌ STOP TRADING — Edge lost or drawdown too high");
+    } else if (edgeWeak || warningDD) {
+      setAlert("⚠️ CAUTION — Reduce risk / be selective");
+    } else if (edgeStrong && safeDD) {
+      setAlert("✅ SYSTEM OK — You can trade");
+    }
+  }, [avg, dd]);
+
+  /* ✅ optional browser alert */
+  useEffect(() => {
+    if (!alert) return;
+
+    // basic notification (safe)
+    console.log("ALERT:", alert);
+  }, [alert]);
 
   /* ---------- UI ---------- */
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        ✅ Production Trading System
+        Live Trading Alerts
       </h1>
 
-      {/* Live Status */}
-      <div className="bg-white border rounded p-4 mb-6">
-
-        <h2 className="font-semibold mb-3">System Status</h2>
-
-        <div className="text-lg font-bold">
-          {systemON ? (
-            <span className="text-green-700">
-              ✅ SYSTEM ON (TRADE)
-            </span>
-          ) : (
-            <span className="text-red-700">
-              ❌ SYSTEM OFF (NO TRADE)
-            </span>
-          )}
+      {/* Alert banner */}
+      {alert && (
+        <div className={`p-4 rounded mb-6 text-white font-semibold ${
+          alert.includes("STOP")
+            ? "bg-red-600"
+            : alert.includes("CAUTION")
+            ? "bg-yellow-500"
+            : "bg-green-600"
+        }`}>
+          {alert}
         </div>
-
-        <div className="mt-2 text-sm">
-          Edge: {hasEdge ? "Positive" : "Negative"}  
-          | Drawdown Safe: {safeDrawdown ? "Yes" : "No"}
-        </div>
-
-      </div>
+      )}
 
       {/* Metrics */}
-      <div className="bg-white border rounded p-4 mb-6">
+      <div className="bg-white border rounded p-4 space-y-2">
 
-        <h2 className="font-semibold mb-2">Performance</h2>
+        <h2 className="font-semibold">Live Metrics</h2>
 
         <div>Avg R: {avg.toFixed(2)}</div>
         <div>Win Rate: {(wr * 100).toFixed(1)}%</div>
-        <div>Max Drawdown: {(dd * 100).toFixed(1)}%</div>
+        <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
 
       </div>
 
-      {/* Position Sizing */}
-      <div className="bg-white border rounded p-4 mb-6">
+      {/* Interpretation */}
+      <div className="bg-white border rounded p-4 mt-6">
 
-        <h2 className="font-semibold mb-3">
-          Position Sizing (Live)
-        </h2>
-
-        <div className="space-y-2 text-sm">
-
-          <div className="flex justify-between">
-            <span>Kelly:</span>
-            <span>{(kellySize * 100).toFixed(1)}%</span>
-          </div>
-
-          <div className="flex justify-between">
-            <span>Adaptive Size:</span>
-            <span className="text-green-700">
-              {(adaptiveSize * 100).toFixed(1)}%
-            </span>
-          </div>
-
-        </div>
-
-      </div>
-
-      {/* Risk */}
-      <div className="bg-white border rounded p-4">
-
-        <h2 className="font-semibold mb-2">Risk Control</h2>
+        <h2 className="font-semibold mb-2">How to Use</h2>
 
         <div className="text-sm space-y-1">
-
-          <div>
-            ❌ Stop trading if Avg R ≤ 0
-          </div>
-
-          <div>
-            ❌ Stop trading if Drawdown ≥ 25%
-          </div>
-
-          <div>
-            ✅ Reduce size dynamically during drawdowns
-          </div>
-
+          <div>✅ Trade normally when system is GREEN</div>
+          <div>⚠️ Reduce size when system is YELLOW</div>
+          <div>❌ Stop trading when system is RED</div>
         </div>
 
       </div>
