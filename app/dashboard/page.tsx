@@ -1,5 +1,6 @@
-"use client";"use helpers ---------- */
+"use client";
 
+/* ---------- helpers ---------- */
 function avgR(trades: { profit: number; risk: number }[]) {
   if (!trades.length) return 0;
   return trades.reduce((s, t) => s + t.profit / t.risk, 0) / trades.length;
