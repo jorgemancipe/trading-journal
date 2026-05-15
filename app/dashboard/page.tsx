@@ -16,16 +16,13 @@ function equity(trades: { profit: number }[]) {
 }
 
 function maxDrawdown(curve: number[]) {
-  let peak = 0;
-  let maxDD = 0;
-
+  let peak = 0, max = 0;
   for (const v of curve) {
     if (v > peak) peak = v;
     const dd = (peak - v) / (peak || 1);
-    if (dd > maxDD) maxDD = dd;
+    if (dd > max) max = dd;
   }
-
-  return maxDD;
+  return max;
 }
 
 /* ---------- page ---------- */
@@ -46,39 +43,40 @@ export default function DashboardPage() {
   const curve = equity(validTrades);
   const dd = maxDrawdown(curve);
 
-  /* ---------- regime detection ---------- */
+  /* ---------- regime ---------- */
 
   let regime = "";
   let color = "";
-  let guidance = "";
+  let allowedStrategies: string[] = [];
 
-  // 🚨 DANGER
   if (avg <= 0 || dd >= 0.25) {
-    regime = "DANGER MARKET";
+    regime = "DANGER";
     color = "bg-red-600";
-    guidance = "STOP trading — system conditions are unsafe.";
+    allowedStrategies = [];
   }
 
-  // ⚠️ CHOPPING
   else if (Math.abs(recent - avg) > 0.2 || dd >= 0.15) {
-    regime = "CHOPPY MARKET";
+    regime = "CHOPPY";
     color = "bg-yellow-500";
-    guidance = "Reduce size — trades are inconsistent.";
+    allowedStrategies = ["VWAP Reversion"];
   }
 
-  // ✅ TRENDING
-  else if (avg > 0.2 && recent >= avg && dd < 0.1) {
-    regime = "TRENDING MARKET";
-    color = "bg-green-600";
-    guidance = "Increase size — strong and stable edge.";
-  }
-
-  // DEFAULT
   else {
-    regime = "NEUTRAL MARKET";
-    color = "bg-gray-500";
-    guidance = "Normal trading — no strong signals.";
+    regime = "TRENDING";
+    color = "bg-green-600";
+    allowedStrategies = ["ORB", "Momentum"];
   }
+
+  /* ---------- strategy enforcement ---------- */
+
+  const tradeAllowed = (strategy: string) => {
+    if (allowedStrategies.length === 0) return false;
+    return allowedStrategies.includes(strategy);
+  };
+
+  const blockedTrades = validTrades.filter(
+    t => !tradeAllowed(t.strategy || "")
+  );
 
   /* ---------- UI ---------- */
 
@@ -86,47 +84,55 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        Market Regime Detection
+        Strategy by Market Regime
       </h1>
 
       {/* Regime */}
       <div className={`${color} text-white p-5 rounded mb-6`}>
         <div className="text-xl font-semibold">
-          {regime}
+          {regime} MARKET
         </div>
+
         <div className="text-sm mt-1">
-          {guidance}
+          Allowed strategies:
+          {" "}
+          {allowedStrategies.length > 0
+            ? allowedStrategies.join(", ")
+            : "NONE"}
         </div>
       </div>
 
       {/* Metrics */}
-      <div className="bg-white border rounded p-4 space-y-2">
-
-        <h2 className="font-semibold">System Metrics</h2>
+      <div className="bg-white border rounded p-4 mb-6 space-y-2">
+        <h2 className="font-semibold">Metrics</h2>
 
         <div>Avg R: {avg.toFixed(2)}</div>
         <div>Recent Avg R: {recent.toFixed(2)}</div>
         <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
-
       </div>
 
-      {/* Interpretation */}
-      <div className="bg-white border rounded p-4 mt-6">
+      {/* Strategy enforcement */}
+      <div className="bg-white border rounded p-4">
 
         <h2 className="font-semibold mb-2">
-          How to Trade Each Regime
+          Strategy Control
         </h2>
 
         <div className="text-sm space-y-1">
-          <div>✅ TRENDING → Full size trades</div>
-          <div>⚠️ CHOPPY → Half size / selective entries</div>
-          <div>🚨 DANGER → No trades</div>
-          <div>⚪ NEUTRAL → Regular size</div>
+          <div>Total trades: {validTrades.length}</div>
+          <div>
+            Blocked trades: {blockedTrades.length}
+          </div>
         </div>
+
+        {allowedStrategies.length === 0 && (
+          <div className="text-red-700 mt-3 font-semibold">
+            🚨 Trading Disabled
+          </div>
+        )}
 
       </div>
 
     </main>
   );
 }
-``
