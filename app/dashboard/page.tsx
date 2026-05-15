@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
 
 /* ---------- helpers ---------- */
@@ -18,55 +18,9 @@ function winRate(trades: { profit: number }[]) {
   return wins / trades.length;
 }
 
-function equity(trades: { profit: number }[]) {
-  let e = 0;
-  return trades.map(t => (e += t.profit));
-}
-
-function maxDrawdown(trades: { profit: number }[]) {
-  const curve = equity(trades);
-  let peak = 0;
-  let maxDD = 0;
-
-  for (const v of curve) {
-    if (v > peak) peak = v;
-    const dd = peak - v;
-    if (dd > maxDD) maxDD = dd;
-  }
-
-  return maxDD;
-}
-
-function riskOfRuin(win: number, avgWin: number, avgLoss: number) {
-  if (avgLoss === 0) return 0;
-
-  const b = avgWin / Math.abs(avgLoss);
-  const p = win;
-  const q = 1 - p;
-
-  if (b <= 0 || p <= 0 || p >= 1) return 1;
-
-  return Math.pow(q / (p * b), 1);
-}
-
-/* ---------- page ---------- */
-
-export default function DashboardPage() {
-  const { trades } = useTrades();
-  const [minTrades, setMinTrades] = useState(5);
-
-  const validTrades = useMemo(
-    () => trades.filter(t => t.risk > 0),
-    [trades]
-  );
-
-  /* ---------- metrics ---------- */
-
-  const avg = avgR(validTrades);
-  const wr = winRate(validTrades);
-
-  const wins = validTrades.filter(t => t.profit > 0);
-  const losses = validTrades.filter(t => t.profit < 0);
+function avgWinLoss(trades: { profit: number; risk: number }[]) {
+  const wins = trades.filter(t => t.profit > 0);
+  const losses = trades.filter(t => t.profit < 0);
 
   const avgWin =
     wins.length === 0
@@ -76,78 +30,111 @@ export default function DashboardPage() {
   const avgLoss =
     losses.length === 0
       ? 0
-      : losses.reduce((s, t) => s + t.profit / t.risk, 0) / losses.length;
+      : Math.abs(
+          losses.reduce((s, t) => s + t.profit / t.risk, 0) / losses.length
+        );
 
-  const drawdown = maxDrawdown(validTrades);
+  return { avgWin, avgLoss };
+}
 
-  const ruin = riskOfRuin(wr, avgWin, avgLoss);
+/* ✅ Kelly-style sizing */
+function kelly(win: number, avgWin: number, avgLoss: number) {
+  if (avgLoss === 0) return 0;
 
-  /* ---------- UI ---------- */
+  const b = avgWin / avgLoss;
+  const p = win;
+  const q = 1 - p;
+
+  const f = (b * p - q) / b;
+
+  return Math.max(0, f); // no negative sizing
+}
+
+/* ---------- page ---------- */
+
+export default function DashboardPage() {
+  const { trades } = useTrades();
+
+  const validTrades = useMemo(
+    () => trades.filter(t => t.risk > 0),
+    [trades]
+  );
+
+  const wr = winRate(validTrades);
+  const avg = avgR(validTrades);
+  const { avgWin, avgLoss } = avgWinLoss(validTrades);
+
+  const kellyFraction = kelly(wr, avgWin, avgLoss);
+
+  /* ✅ safer fractional sizing */
+  const conservative = kellyFraction / 2;
+  const ultraSafe = kellyFraction / 4;
 
   return (
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        Risk Engine Dashboard
+        Position Sizing Engine
       </h1>
 
-      {/* Control */}
-      <div className="bg-white border rounded p-4 mb-6">
-        <label>Min trades: {minTrades}</label>
-        <input
-          type="range"
-          min={1}
-          max={20}
-          value={minTrades}
-          onChange={e => setMinTrades(Number(e.target.value))}
-          className="w-full"
-        />
-      </div>
-
-      {/* Core metrics */}
+      {/* Core stats */}
       <div className="bg-white border rounded p-4 mb-6 space-y-2">
-        <h2 className="font-semibold">Performance</h2>
+        <h2 className="font-semibold">System Stats</h2>
 
         <div>Avg R: {avg.toFixed(2)}</div>
-        <div>Win rate: {(wr * 100).toFixed(1)}%</div>
+        <div>Win Rate: {(wr * 100).toFixed(1)}%</div>
         <div>Avg Win R: {avgWin.toFixed(2)}</div>
         <div>Avg Loss R: {avgLoss.toFixed(2)}</div>
       </div>
 
-      {/* Risk metrics */}
-      <div className="bg-white border rounded p-4">
+      {/* Sizing */}
+      <div className="bg-white border rounded p-4 mb-6">
 
-        <h2 className="font-semibold mb-3">Risk Analysis</h2>
+        <h2 className="font-semibold mb-3">
+          Optimal Position Sizing (Kelly)
+        </h2>
 
         <div className="space-y-2 text-sm">
 
           <div className="flex justify-between">
-            <span>Max Drawdown:</span>
-            <span className="text-red-700">
-              {drawdown.toFixed(2)}
+            <span>Full Kelly:</span>
+            <span className="text-blue-700">
+              {(kellyFraction * 100).toFixed(1)}%
             </span>
           </div>
 
           <div className="flex justify-between">
-            <span>Risk of Ruin:</span>
-            <span
-              className={
-                ruin < 0.2
-                  ? "text-green-700"
-                  : ruin < 0.5
-                  ? "text-yellow-600"
-                  : "text-red-700"
-              }
-            >
-              {(ruin * 100).toFixed(1)}%
+            <span>Half Kelly (recommended):</span>
+            <span className="text-green-700">
+              {(conservative * 100).toFixed(1)}%
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Quarter Kelly (safe):</span>
+            <span className="text-gray-700">
+              {(ultraSafe * 100).toFixed(1)}%
             </span>
           </div>
 
         </div>
 
         <p className="text-xs text-gray-500 mt-3">
-          Risk of ruin is an approximation based on your win rate and R distribution.
+          Kelly maximizes long‑term growth but can be aggressive. Most traders
+          use half or quarter Kelly for stability.
         </p>
+      </div>
+
+      {/* Interpretation */}
+      <div className="bg-white border rounded p-4">
+
+        <h2 className="font-semibold mb-2">Interpretation</h2>
+
+        <div className="text-sm space-y-1">
+          <div>✅ Higher Kelly = stronger edge</div>
+          <div>⚠️ Large Kelly = higher volatility</div>
+          <div>❌ Kelly near 0 = no real edge</div>
+        </div>
 
       </div>
 
