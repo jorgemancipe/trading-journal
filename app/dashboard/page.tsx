@@ -5,49 +5,30 @@ import { useTrades } from "../context/TradesContext";
 
 /* ---------- helpers ---------- */
 
-function avgR(trades: { profit: number; risk: number }[]) {
-  if (trades.length === 0) return 0;
-  let sum = 0;
-  for (const t of trades) sum += t.profit / t.risk;
-  return sum / trades.length;
+function equity(trades: { profit: number }[]) {
+  let e = 0;
+  return trades.map(t => (e += t.profit));
 }
 
-function winRate(trades: { profit: number }[]) {
-  if (trades.length === 0) return 0;
-  const wins = trades.filter(t => t.profit > 0).length;
-  return wins / trades.length;
+function maxDrawdown(curve: number[]) {
+  let peak = 0;
+  let maxDD = 0;
+
+  for (const v of curve) {
+    if (v > peak) peak = v;
+    const dd = (peak - v) / (peak || 1);
+    if (dd > maxDD) maxDD = dd;
+  }
+
+  return maxDD;
 }
 
-function avgWinLoss(trades: { profit: number; risk: number }[]) {
-  const wins = trades.filter(t => t.profit > 0);
-  const losses = trades.filter(t => t.profit < 0);
-
-  const avgWin =
-    wins.length === 0
-      ? 0
-      : wins.reduce((s, t) => s + t.profit / t.risk, 0) / wins.length;
-
-  const avgLoss =
-    losses.length === 0
-      ? 0
-      : Math.abs(
-          losses.reduce((s, t) => s + t.profit / t.risk, 0) / losses.length
-        );
-
-  return { avgWin, avgLoss };
-}
-
-/* ✅ Kelly-style sizing */
-function kelly(win: number, avgWin: number, avgLoss: number) {
-  if (avgLoss === 0) return 0;
-
-  const b = avgWin / avgLoss;
-  const p = win;
-  const q = 1 - p;
-
-  const f = (b * p - q) / b;
-
-  return Math.max(0, f); // no negative sizing
+/* ✅ Adaptive risk function */
+function riskMultiplier(drawdown: number) {
+  if (drawdown < 0.1) return 1.0;
+  if (drawdown < 0.2) return 0.75;
+  if (drawdown < 0.3) return 0.5;
+  return 0.25;
 }
 
 /* ---------- page ---------- */
@@ -60,80 +41,93 @@ export default function DashboardPage() {
     [trades]
   );
 
-  const wr = winRate(validTrades);
-  const avg = avgR(validTrades);
-  const { avgWin, avgLoss } = avgWinLoss(validTrades);
+  /* ---------- baseline ---------- */
 
-  const kellyFraction = kelly(wr, avgWin, avgLoss);
+  const baseCurve = useMemo(() => equity(validTrades), [validTrades]);
+  const baseDD = maxDrawdown(baseCurve);
 
-  /* ✅ safer fractional sizing */
-  const conservative = kellyFraction / 2;
-  const ultraSafe = kellyFraction / 4;
+  /* ---------- adaptive simulation ---------- */
+
+  const adaptiveCurve = useMemo(() => {
+    let equityValue = 0;
+    let peak = 0;
+
+    const out: number[] = [];
+
+    for (const t of validTrades) {
+      const dd = peak > 0 ? (peak - equityValue) / peak : 0;
+      const multiplier = riskMultiplier(dd);
+
+      const adjustedProfit = t.profit * multiplier;
+
+      equityValue += adjustedProfit;
+      if (equityValue > peak) peak = equityValue;
+
+      out.push(equityValue);
+    }
+
+    return out;
+  }, [validTrades]);
+
+  const adaptiveDD = maxDrawdown(adaptiveCurve);
+
+  /* ---------- metrics ---------- */
+
+  const baseFinal = baseCurve[baseCurve.length - 1] || 0;
+  const adaptiveFinal =
+    adaptiveCurve[adaptiveCurve.length - 1] || 0;
+
+  /* ---------- UI ---------- */
 
   return (
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        Position Sizing Engine
+        Adaptive Risk Engine
       </h1>
 
-      {/* Core stats */}
-      <div className="bg-white border rounded p-4 mb-6 space-y-2">
-        <h2 className="font-semibold">System Stats</h2>
-
-        <div>Avg R: {avg.toFixed(2)}</div>
-        <div>Win Rate: {(wr * 100).toFixed(1)}%</div>
-        <div>Avg Win R: {avgWin.toFixed(2)}</div>
-        <div>Avg Loss R: {avgLoss.toFixed(2)}</div>
+      {/* Baseline */}
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-2">Baseline</h2>
+        <div>Final Equity: {baseFinal.toFixed(2)}</div>
+        <div className="text-red-700">
+          Max Drawdown: {(baseDD * 100).toFixed(1)}%
+        </div>
       </div>
 
-      {/* Sizing */}
+      {/* Adaptive */}
       <div className="bg-white border rounded p-4 mb-6">
-
-        <h2 className="font-semibold mb-3">
-          Optimal Position Sizing (Kelly)
+        <h2 className="font-semibold mb-2">
+          Adaptive Risk Engine
         </h2>
 
-        <div className="space-y-2 text-sm">
+        <div>Final Equity: {adaptiveFinal.toFixed(2)}</div>
 
-          <div className="flex justify-between">
-            <span>Full Kelly:</span>
-            <span className="text-blue-700">
-              {(kellyFraction * 100).toFixed(1)}%
-            </span>
-          </div>
-
-          <div className="flex justify-between">
-            <span>Half Kelly (recommended):</span>
-            <span className="text-green-700">
-              {(conservative * 100).toFixed(1)}%
-            </span>
-          </div>
-
-          <div className="flex justify-between">
-            <span>Quarter Kelly (safe):</span>
-            <span className="text-gray-700">
-              {(ultraSafe * 100).toFixed(1)}%
-            </span>
-          </div>
-
+        <div
+          className={
+            adaptiveDD <= baseDD
+              ? "text-green-700"
+              : "text-red-700"
+          }
+        >
+          Max Drawdown: {(adaptiveDD * 100).toFixed(1)}%
         </div>
-
-        <p className="text-xs text-gray-500 mt-3">
-          Kelly maximizes long‑term growth but can be aggressive. Most traders
-          use half or quarter Kelly for stability.
-        </p>
       </div>
 
-      {/* Interpretation */}
+      {/* Comparison */}
       <div className="bg-white border rounded p-4">
 
-        <h2 className="font-semibold mb-2">Interpretation</h2>
+        <h2 className="font-semibold mb-2">Comparison</h2>
 
         <div className="text-sm space-y-1">
-          <div>✅ Higher Kelly = stronger edge</div>
-          <div>⚠️ Large Kelly = higher volatility</div>
-          <div>❌ Kelly near 0 = no real edge</div>
+          <div>
+            Δ Equity: {(adaptiveFinal - baseFinal).toFixed(2)}
+          </div>
+
+          <div>
+            Drawdown Reduction:{" "}
+            {((baseDD - adaptiveDD) * 100).toFixed(1)}%
+          </div>
         </div>
 
       </div>
@@ -141,3 +135,4 @@ export default function DashboardPage() {
     </main>
   );
 }
+``
