@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
+/* ================== Types ================== */
+
 type Session = "Open" | "Midday" | "PowerHour";
 
 type Rule = {
@@ -10,7 +12,7 @@ type Rule = {
   session: Session;
 };
 
-/* ---------- helpers ---------- */
+/* ================== Helpers ================== */
 
 function getSession(date: string): Session | null {
   // Requires time in date string: YYYY-MM-DDTHH:mm
@@ -26,6 +28,7 @@ function getSession(date: string): Session | null {
   if ((h === 9 && m >= 45) || h === 10 || (h === 11 && m < 30))
     return "Midday";
   if (h === 15) return "PowerHour";
+
   return null;
 }
 
@@ -36,7 +39,7 @@ function avgR(trades: { profit: number; risk: number }[]) {
   return sum / trades.length;
 }
 
-/* ---------- page ---------- */
+/* ================== Page ================== */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
@@ -44,12 +47,39 @@ export default function DashboardPage() {
   const [minTrades, setMinTrades] = useState(5);
   const [simulate, setSimulate] = useState(false);
 
+  const [acceptedRules, setAcceptedRules] = useState<Rule[]>(() => {
+    try {
+      const raw = localStorage.getItem("acceptedRules");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  function toggleRule(rule: Rule) {
+    setAcceptedRules((prev) => {
+      const exists = prev.some(
+        (r) => r.strategy === rule.strategy && r.session === rule.session
+      );
+
+      const next = exists
+        ? prev.filter(
+            (r) =>
+              !(r.strategy === rule.strategy && r.session === rule.session)
+          )
+        : [...prev, rule];
+
+      localStorage.setItem("acceptedRules", JSON.stringify(next));
+      return next;
+    });
+  }
+
   const validTrades = useMemo(
     () => trades.filter((t) => t.risk > 0),
     [trades]
   );
 
-  /* ---- build rules (strategy × session) ---- */
+  /* ---- Build rules from data ---- */
 
   const rules = useMemo<Rule[]>(() => {
     const map = new Map<
@@ -84,135 +114,5 @@ export default function DashboardPage() {
     return out;
   }, [validTrades, minTrades]);
 
-  /* ---- simulation ---- */
+  /* ---- Simulated trades (accepted rules only) ---- */
 
-  const simulatedTrades = useMemo(() => {
-    if (!simulate) return validTrades;
-
-    return validTrades.filter((t) => {
-      const s = getSession(t.date);
-      if (!s) return true;
-      return !rules.some(
-        (r) => r.strategy === t.strategy && r.session === s
-      );
-    });
-  }, [simulate, validTrades, rules]);
-
-  const baseAvg = avgR(validTrades);
-  const simAvg = avgR(simulatedTrades);
-
-  /* ---- per‑rule impact ---- */
-
-  const perRuleImpact = useMemo(() => {
-    return rules
-      .map((rule) => {
-        const filtered = validTrades.filter((t) => {
-          const s = getSession(t.date);
-          if (!s) return true;
-          return !(t.strategy === rule.strategy && s === rule.session);
-        });
-
-        return {
-          rule,
-          removed: validTrades.length - filtered.length,
-          delta: avgR(filtered) - baseAvg,
-        };
-      })
-      .sort((a, b) => b.delta - a.delta);
-  }, [rules, validTrades, baseAvg]);
-
-  /* ---------- UI ---------- */
-
-  return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
-      <h1 className="text-3xl font-bold mb-6">
-        Simulated Apply Rules
-      </h1>
-
-      {/* Controls */}
-      <div className="bg-white border rounded p-4 mb-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium">
-            Minimum trades: {minTrades}
-          </label>
-          <input
-            type="range"
-            min={1}
-            max={20}
-            value={minTrades}
-            onChange={(e) => setMinTrades(Number(e.target.value))}
-            className="w-full"
-          />
-        </div>
-
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={simulate}
-            onChange={(e) => setSimulate(e.target.checked)}
-          />
-          <span>Simulate Apply Rules</span>
-        </label>
-      </div>
-
-      {/* Overall impact */}
-      <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-2">Overall Impact</h2>
-        <div className="space-y-1 text-sm">
-          <div>Original Avg R: {baseAvg.toFixed(2)}</div>
-          <div>Simulated Avg R: {simAvg.toFixed(2)}</div>
-          <div
-            className={
-              simAvg - baseAvg >= 0
-                ? "text-green-700 font-semibold"
-                : "text-red-700 font-semibold"
-            }
-          >
-            Δ Avg R: {(simAvg - baseAvg).toFixed(2)}
-          </div>
-        </div>
-      </div>
-
-      {/* Per‑rule impact */}
-      <div className="bg-white border rounded p-4">
-        <h2 className="font-semibold mb-3">
-          Per‑Rule Impact Breakdown
-        </h2>
-
-        {perRuleImpact.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            No rules triggered (insufficient data or no session time).
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-1">Rule</th>
-                <th className="text-right py-1">Trades Removed</th>
-                <th className="text-right py-1">Δ Avg R</th>
-              </tr>
-            </thead>
-            <tbody>
-              {perRuleImpact.map((r, i) => (
-                <tr key={i} className="border-b">
-                  <td className="py-1">
-                    Disable <strong>{r.rule.strategy}</strong> during{" "}
-                    <strong>{r.rule.session}</strong>
-                  </td>
-                  <td className="text-right">{r.removed}</td>
-                  <td
-                    className={`text-right ${
-                      r.delta >= 0 ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {r.delta.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </main>
-  );
-}
