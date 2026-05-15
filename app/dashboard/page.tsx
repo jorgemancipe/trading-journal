@@ -15,7 +15,7 @@ function equity(trades: { profit: number }[]) {
   return trades.map(t => (e += t.profit));
 }
 
-function maxDrawdown(curve: number[]) {
+function maxDD(curve: number[]) {
   let peak = 0, max = 0;
   for (const v of curve) {
     if (v > peak) peak = v;
@@ -35,104 +35,73 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---------- metrics ---------- */
+  /* ---------- system stats ---------- */
 
   const avg = avgR(validTrades);
   const recent = avgR(validTrades.slice(-20));
 
   const curve = equity(validTrades);
-  const dd = maxDrawdown(curve);
+  const dd = maxDD(curve);
 
   /* ---------- regime ---------- */
 
-  let regime = "";
-  let color = "";
-  let allowedStrategies: string[] = [];
+  let regime = "NEUTRAL";
 
-  if (avg <= 0 || dd >= 0.25) {
-    regime = "DANGER";
-    color = "bg-red-600";
-    allowedStrategies = [];
+  if (avg <= 0 || dd >= 0.25) regime = "DANGER";
+  else if (Math.abs(recent - avg) > 0.2 || dd >= 0.15) regime = "CHOPPY";
+  else if (avg > 0.2 && recent >= avg && dd < 0.1) regime = "TRENDING";
+
+  /* ---------- allowed strategies ---------- */
+
+  const allowedStrategies =
+    regime === "TRENDING"
+      ? ["ORB", "Momentum"]
+      : regime === "CHOPPY"
+      ? ["VWAP Reversion"]
+      : [];
+
+  /* ---------- execution engine ---------- */
+
+  function evaluateTrade(trade: any) {
+    const strategy = trade.strategy || "Unknown";
+
+    // ❌ FULL BLOCK
+    if (regime === "DANGER") {
+      return { status: "BLOCKED", size: 0 };
+    }
+
+    // ❌ STRATEGY BLOCK
+    if (!allowedStrategies.includes(strategy)) {
+      return { status: "BLOCKED", size: 0 };
+    }
+
+    // ⚠️ REDUCE SIZE
+    if (regime === "CHOPPY") {
+      return { status: "REDUCED", size: 0.5 };
+    }
+
+    // ✅ FULL APPROVE
+    return { status: "APPROVED", size: 1.0 };
   }
 
-  else if (Math.abs(recent - avg) > 0.2 || dd >= 0.15) {
-    regime = "CHOPPY";
-    color = "bg-yellow-500";
-    allowedStrategies = ["VWAP Reversion"];
-  }
+  const evaluatedTrades = validTrades.map(t => ({
+    ...t,
+    decision: evaluateTrade(t),
+  }));
 
-  else {
-    regime = "TRENDING";
-    color = "bg-green-600";
-    allowedStrategies = ["ORB", "Momentum"];
-  }
-
-  /* ---------- strategy enforcement ---------- */
-
-  const tradeAllowed = (strategy: string) => {
-    if (allowedStrategies.length === 0) return false;
-    return allowedStrategies.includes(strategy);
-  };
-
-  const blockedTrades = validTrades.filter(
-    t => !tradeAllowed(t.strategy || "")
-  );
+  const blocked = evaluatedTrades.filter(t => t.decision.status === "BLOCKED").length;
+  const reduced = evaluatedTrades.filter(t => t.decision.status === "REDUCED").length;
+  const approved = evaluatedTrades.filter(t => t.decision.status === "APPROVED").length;
 
   /* ---------- UI ---------- */
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        Strategy by Market Regime
+        ⚙️ Auto Execution Engine
       </h1>
 
-      {/* Regime */}
-      <div className={`${color} text-white p-5 rounded mb-6`}>
-        <div className="text-xl font-semibold">
-          {regime} MARKET
-        </div>
+      {/* System Status */}
+      <div className="bg-white border p-4 rounded mb-6">
 
-        <div className="text-sm mt-1">
-          Allowed strategies:
-          {" "}
-          {allowedStrategies.length > 0
-            ? allowedStrategies.join(", ")
-            : "NONE"}
-        </div>
-      </div>
-
-      {/* Metrics */}
-      <div className="bg-white border rounded p-4 mb-6 space-y-2">
-        <h2 className="font-semibold">Metrics</h2>
-
-        <div>Avg R: {avg.toFixed(2)}</div>
-        <div>Recent Avg R: {recent.toFixed(2)}</div>
-        <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
-      </div>
-
-      {/* Strategy enforcement */}
-      <div className="bg-white border rounded p-4">
-
-        <h2 className="font-semibold mb-2">
-          Strategy Control
-        </h2>
-
-        <div className="text-sm space-y-1">
-          <div>Total trades: {validTrades.length}</div>
-          <div>
-            Blocked trades: {blockedTrades.length}
-          </div>
-        </div>
-
-        {allowedStrategies.length === 0 && (
-          <div className="text-red-700 mt-3 font-semibold">
-            🚨 Trading Disabled
-          </div>
-        )}
-
-      </div>
-
-    </main>
-  );
-}
