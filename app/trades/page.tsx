@@ -1,16 +1,19 @@
+"use client";
+
 import TradeForm from "./TradeForm";
 
 export default function TradesPage() {
   return (
-    <main className="p-8">
+    <main className="p-8 max-w-4xl">
 
-      <h1 className="text-2xl font-bold mb-4">
+      <h1 className="text-3xl font-bold mb-6">
         Trades
       </h1>
 
-      {/* ✅ THIS IS WHERE YOU ADD IT */}
+      {/* ✅ Your upgraded form is now rendered here */}
       <TradeForm />
 
     </main>
   );
 }
+``
