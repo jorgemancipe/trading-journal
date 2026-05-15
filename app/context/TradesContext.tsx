@@ -24,8 +24,32 @@ type TradesContextType = {
   addTrade: (trade: Trade) => void;
 };
 
-const TradesContext = createContext<TradesContextType | null>(null);
+const TradesContext = createContext<TradesContextType | undefined>(undefined);
 
 /* ---------- provider ---------- */
 
 export function TradesProvider({ children }: { children: React.ReactNode }) {
+  const [trades, setTrades] = useState<Trade[]>([]);
+
+  function addTrade(trade: Trade) {
+    setTrades((prev) => [...prev, trade]);
+  }
+
+  return (
+    <TradesContext.Provider value={{ trades, addTrade }}>
+      {children}
+    </TradesContext.Provider>
+  );
+}
+
+/* ---------- hook ---------- */
+
+export function useTrades() {
+  const context = useContext(TradesContext);
+
+  if (!context) {
+    throw new Error("useTrades must be used inside TradesProvider");
+  }
+
+  return context;
+}
