@@ -15,25 +15,19 @@ function equity(trades: { profit: number }[]) {
   return trades.map(t => (e += t.profit));
 }
 
-function maxDrawdown(curve: number[]) {
-  let peak = 0;
-  let maxDD = 0;
-
+function maxDD(curve: number[]) {
+  let peak = 0, max = 0;
   for (const v of curve) {
     if (v > peak) peak = v;
     const dd = (peak - v) / (peak || 1);
-    if (dd > maxDD) maxDD = dd;
+    if (dd > max) max = dd;
   }
-
-  return maxDD;
+  return max;
 }
 
-/* ✅ trigger browser notification */
-function notify(message: string) {
-  if (!("Notification" in window)) return;
-
-  if (Notification.permission === "granted") {
-    new Notification(message);
+function notify(msg: string) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification(msg);
   }
 }
 
@@ -42,45 +36,68 @@ function notify(message: string) {
 export default function DashboardPage() {
   const { trades } = useTrades();
 
-  const [alert, setAlert] = useState<string | null>(null);
-  const [lastAlert, setLastAlert] = useState<string | null>(null);
+  const [alert, setAlert] = useState("");
+  const [lastAlert, setLastAlert] = useState("");
 
   const validTrades = useMemo(
     () => trades.filter(t => t.risk > 0),
     [trades]
   );
 
+  /* ---------- metrics ---------- */
+
   const avg = avgR(validTrades);
   const curve = equity(validTrades);
-  const dd = maxDrawdown(curve);
+  const dd = maxDD(curve);
 
-  /* ✅ request permission once */
+  /* ✅ Rolling edge (recent performance) */
+  const recentTrades = validTrades.slice(-20);
+  const recentAvg = avgR(recentTrades);
+
+  /* ---------- Pro Alert Engine ---------- */
+
+  useEffect(() => {
+    let msg = "";
+
+    /* ✅ GREEN */
+    if (avg > 0.3 && dd < 0.1 && recentAvg >= avg) {
+      msg = "✅ STRONG SYSTEM — Trade aggressively";
+    }
+
+    /* ⚠️ YELLOW */
+    else if (avg > 0 && dd < 0.2) {
+      msg = "⚠️ DEFENSIVE MODE — Reduce size";
+    }
+
+    /* 🚨 RED */
+    if (avg <= 0 || dd >= 0.25) {
+      msg = "🚨 STOP — System OFF";
+    }
+
+    /* ⚡ BREAKDOWN ALERT */
+    if (recentAvg < avg * 0.5) {
+      msg = "⚡ BREAKDOWN DETECTED — Sudden performance drop";
+    }
+
+    /* 📉 EDGE DECAY */
+    if (recentAvg < avg) {
+      msg = "📉 EDGE DECAY — Performance weakening";
+    }
+
+    setAlert(msg);
+
+    if (msg !== lastAlert) {
+      notify(msg);
+      setLastAlert(msg);
+    }
+  }, [avg, dd, recentAvg]);
+
+  /* ✅ request notification permission */
   useEffect(() => {
     if ("Notification" in window) {
       Notification.requestPermission();
     }
   }, []);
-
-  /* ✅ alert logic */
-  useEffect(() => {
-    let message = "";
-
-    if (avg <= 0 || dd >= 0.25) {
-      message = "❌ STOP TRADING — Edge lost or risk too high";
-    } else if (avg < 0.2 || dd >= 0.15) {
-      message = "⚠️ CAUTION — Reduce size";
-    } else {
-      message = "✅ SYSTEM OK — Trade allowed";
-    }
-
-    setAlert(message);
-
-    /* ✅ only notify if changed */
-    if (message !== lastAlert) {
-      notify(message);
-      setLastAlert(message);
-    }
-  }, [avg, dd]);
 
   /* ---------- UI ---------- */
 
@@ -88,15 +105,20 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        🔔 Live Alert System
+        🚨 Pro Alert Engine
       </h1>
 
+      {/* Alert */}
       {alert && (
         <div
           className={`p-4 rounded mb-6 text-white font-semibold ${
             alert.includes("STOP")
               ? "bg-red-600"
-              : alert.includes("CAUTION")
+              : alert.includes("BREAKDOWN")
+              ? "bg-purple-600"
+              : alert.includes("DECAY")
+              ? "bg-orange-500"
+              : alert.includes("DEFENSIVE")
               ? "bg-yellow-500"
               : "bg-green-600"
           }`}
@@ -105,11 +127,30 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="bg-white border rounded p-4">
-        <h2 className="font-semibold mb-2">Live Metrics</h2>
+      {/* Metrics */}
+      <div className="bg-white border rounded p-4 space-y-2">
+
+        <h2 className="font-semibold">System Metrics</h2>
 
         <div>Avg R: {avg.toFixed(2)}</div>
+        <div>Recent Avg R: {recentAvg.toFixed(2)}</div>
         <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
+
+      </div>
+
+      {/* Guidance */}
+      <div className="bg-white border rounded p-4 mt-6">
+
+        <h2 className="font-semibold mb-2">Trading Instructions</h2>
+
+        <div className="text-sm space-y-1">
+          <div>✅ GREEN → Trade normally / increase size</div>
+          <div>⚠️ YELLOW → Reduce risk / selective trades</div>
+          <div>🚨 RED → Do NOT trade</div>
+          <div>⚡ BREAKDOWN → Stop immediately, review system</div>
+          <div>📉 EDGE DECAY → Avoid scaling up</div>
+        </div>
+
       </div>
 
     </main>
