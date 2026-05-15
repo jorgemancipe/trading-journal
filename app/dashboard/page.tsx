@@ -6,7 +6,7 @@ import { useTrades } from "../context/TradesContext";
 type Session = "Open" | "Midday" | "PowerHour";
 type Rule = { strategy: string; session: Session };
 
-/* ---------- helpers ---------- */
+/* ---------- Helpers ---------- */
 
 function getSession(date: string): Session | null {
   if (!date.includes("T")) return null;
@@ -32,36 +32,17 @@ function avgR(trades: { profit: number; risk: number }[]) {
   return sum / trades.length;
 }
 
-function equityCurve(trades: { profit: number }[]) {
-  let e = 0;
-  return trades.map((t) => (e += t.profit));
-}
-
-function normalize(values: number[]) {
-  if (values.length === 0) return [];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  return values.map((v, i) => ({
-    x: i,
-    y: 100 - ((v - min) / span) * 100,
-  }));
-}
-
-function pointsAttr(points: { x: number; y: number }[]) {
-  return points.map((p) => `${p.x},${p.y}`).join(" ");
-}
-
-/* ---------- page ---------- */
+/* ---------- Page ---------- */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
 
   const [minTrades, setMinTrades] = useState(5);
-  const [simulate, setSimulate] = useState(false);
+  const [mode, setMode] = useState<"none" | "all" | "accepted">("accepted");
+
   const [acceptedRules, setAcceptedRules] = useState<Rule[]>([]);
 
-  /* ✅ Safe client‑side persistence */
+  /* ✅ Safe localStorage */
   useEffect(() => {
     try {
       const raw = localStorage.getItem("acceptedRules");
@@ -93,7 +74,7 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---------- rule generation ---------- */
+  /* ---------- Rule Generation ---------- */
 
   const rules = useMemo<Rule[]>(() => {
     const map = new Map<
@@ -105,11 +86,11 @@ export default function DashboardPage() {
       const s = getSession(t.date);
       if (!s) continue;
 
-      const strategy = t.strategy || "Unassigned";
+      const strat = t.strategy || "Unassigned";
       const r = t.profit / t.risk;
 
-      if (!map.has(strategy)) map.set(strategy, new Map());
-      const row = map.get(strategy)!;
+      if (!map.has(strat)) map.set(strat, new Map());
+      const row = map.get(strat)!;
 
       const cell = row.get(s) ?? { sum: 0, count: 0 };
       cell.sum += r;
@@ -118,54 +99,79 @@ export default function DashboardPage() {
     }
 
     const out: Rule[] = [];
-    for (const [strategy, row] of map.entries()) {
+    for (const [strat, row] of map.entries()) {
       for (const [session, cell] of row.entries()) {
         if (cell.count >= minTrades && cell.sum / cell.count < 0) {
-          out.push({ strategy, session });
+          out.push({ strategy: strat, session });
         }
       }
     }
     return out;
   }, [validTrades, minTrades]);
 
-  /* ---------- simulation (accepted rules only) ---------- */
+  /* ---------- Apply Rules ---------- */
 
-  const simulatedTrades = useMemo(() => {
-    if (!simulate) return validTrades;
+  function shouldRemove(t: any) {
+    const s = getSession(t.date);
+    if (!s) return false;
 
-    return validTrades.filter((t) => {
-      const s = getSession(t.date);
-      if (!s) return true;
-      return !acceptedRules.some(
+    if (mode === "none") return false;
+
+    if (mode === "all") {
+      return rules.some(
         (r) => r.strategy === t.strategy && r.session === s
       );
-    });
-  }, [simulate, validTrades, acceptedRules]);
+    }
 
-  /* ---------- metrics ---------- */
+    if (mode === "accepted") {
+      return acceptedRules.some(
+        (r) => r.strategy === t.strategy && r.session === s
+      );
+    }
+
+    return false;
+  }
+
+  const simulatedTrades = useMemo(() => {
+    return validTrades.filter((t) => !shouldRemove(t));
+  }, [validTrades, rules, acceptedRules, mode]);
 
   const baseAvg = avgR(validTrades);
   const simAvg = avgR(simulatedTrades);
 
-  /* ---------- equity curves ---------- */
+  /* ---------- Per‑Rule Impact ---------- */
 
-  const baseCurve = normalize(equityCurve(validTrades));
-  const simCurve = normalize(equityCurve(simulatedTrades));
-  const width = Math.max(baseCurve.length, simCurve.length, 1);
+  const perRuleImpact = useMemo(() => {
+    return rules
+      .map((rule) => {
+        const filtered = validTrades.filter((t) => {
+          const s = getSession(t.date);
+          if (!s) return true;
+          return !(t.strategy === rule.strategy && s === rule.session);
+        });
+
+        return {
+          rule,
+          removed: validTrades.length - filtered.length,
+          delta: avgR(filtered) - baseAvg,
+        };
+      })
+      .sort((a, b) => b.delta - a.delta);
+  }, [rules, validTrades, baseAvg]);
 
   /* ---------- UI ---------- */
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
       <h1 className="text-3xl font-bold mb-6">
-        Strategy Rules + Equity Curve
+        Rule Simulation Engine
       </h1>
 
       {/* Controls */}
       <div className="bg-white border rounded p-4 mb-6 space-y-4">
         <div>
           <label className="text-sm font-medium">
-            Minimum trades for rules: {minTrades}
+            Min trades: {minTrades}
           </label>
           <input
             type="range"
@@ -177,110 +183,74 @@ export default function DashboardPage() {
           />
         </div>
 
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={simulate}
-            onChange={(e) => setSimulate(e.target.checked)}
-          />
-          <span>Simulate Apply Accepted Rules</span>
-        </label>
-      </div>
-
-      {/* Overall impact */}
-      <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-2">Overall Impact</h2>
-        <div className="text-sm space-y-1">
-          <div>Original Avg R: {baseAvg.toFixed(2)}</div>
-          <div>Simulated Avg R: {simAvg.toFixed(2)}</div>
-          <div
-            className={
-              simAvg - baseAvg >= 0
-                ? "text-green-700 font-semibold"
-                : "text-red-700 font-semibold"
-            }
-          >
-            Δ Avg R: {(simAvg - baseAvg).toFixed(2)}
-          </div>
+        {/* ✅ Mode selector */}
+        <div className="flex gap-2">
+          {["none", "all", "accepted"].map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m as any)}
+              className={`px-3 py-1 border rounded ${
+                mode === m ? "bg-blue-600 text-white" : "bg-gray-100"
+              }`}
+            >
+              {m.toUpperCase()}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Equity Curve Comparison */}
+      {/* Metrics */}
       <div className="bg-white border rounded p-4 mb-6">
-        <h2 className="font-semibold mb-3">
-          Equity Curve (Before vs After)
-        </h2>
-
-        <div className="flex gap-4 text-sm mb-2">
-          <span className="flex items-center gap-2">
-            <span className="w-3 h-3 bg-blue-600 inline-block" />
-            Original
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="w-3 h-3 bg-green-600 inline-block" />
-            Simulated
-          </span>
+        <div>Original Avg R: {baseAvg.toFixed(2)}</div>
+        <div>Simulated Avg R: {simAvg.toFixed(2)}</div>
+        <div
+          className={
+            simAvg >= baseAvg
+              ? "text-green-700 font-semibold"
+              : "text-red-700 font-semibold"
+          }
+        >
+          Δ: {(simAvg - baseAvg).toFixed(2)}
         </div>
-
-        <svg viewBox={`0 0 ${width} 100`} className="w-full h-64">
-          <polyline
-            points={pointsAttr(baseCurve)}
-            fill="none"
-            stroke="#2563eb"
-            strokeWidth="2"
-          />
-          <polyline
-            points={pointsAttr(simCurve)}
-            fill="none"
-            stroke="#16a34a"
-            strokeWidth="2"
-          />
-        </svg>
-
-        <p className="text-xs text-gray-500 mt-2">
-          Curves are normalized to compare shape and drawdown, not dollar size.
-        </p>
       </div>
 
-      {/* Rule selection */}
-      <div className="bg-white border rounded p-4">
-        <h2 className="font-semibold mb-3">Rule Control</h2>
+      {/* Per‑rule impact */}
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-2">Per‑Rule Impact</h2>
 
-        {rules.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            No rules triggered (insufficient data or no session time).
-          </p>
+        {perRuleImpact.length === 0 ? (
+          <p>No rules yet</p>
         ) : (
-          <ul className="space-y-2 text-sm">
-            {rules.map((rule, i) => {
-              const active = acceptedRules.some(
-                (r) =>
-                  r.strategy === rule.strategy &&
-                  r.session === rule.session
-              );
-
-              return (
-                <li key={i} className="flex justify-between items-center">
-                  <span>
-                    Disable <strong>{rule.strategy}</strong> during{" "}
-                    <strong>{rule.session}</strong>
-                  </span>
-                  <button
-                    onClick={() => toggleRule(rule)}
-                    className={`px-3 py-1 border rounded ${
-                      active
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-100"
-                    }`}
+          <table className="w-full text-sm">
+            <tbody>
+              {perRuleImpact.map((r, i) => (
+                <tr key={i}>
+                  <td>
+                    Disable {r.rule.strategy} @ {r.rule.session}
+                  </td>
+                  <td className="text-right">{r.removed}</td>
+                  <td
+                    className={
+                      r.delta >= 0 ? "text-green-700" : "text-red-700"
+                    }
                   >
-                    {active ? "Accepted" : "Ignore"}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                    {r.delta.toFixed(2)}
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => toggleRule(r.rule)}
+                      className="px-2 border rounded"
+                    >
+                      Toggle
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </main>
   );
 }
+``
