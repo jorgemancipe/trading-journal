@@ -1,32 +1,20 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
-
-type Session = "Open" | "Midday" | "PowerHour";
-type Rule = { strategy: string; session: Session };
 
 /* ---------- helpers ---------- */
 
-function getSession(date: string): Session | null {
-  if (!date.includes("T")) return null;
-  const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return null;
-
-  const h = d.getHours();
-  const m = d.getMinutes();
-
-  if (h === 9 && m >= 30 && m < 45) return "Open";
-  if ((h === 9 && m >= 45) || h === 10 || (h === 11 && m < 30)) return "Midday";
-  if (h === 15) return "PowerHour";
-  return null;
-}
-
 function avgR(trades: { profit: number; risk: number }[]) {
-  if (trades.length === 0) return 0;
+  if (!trades.length) return 0;
   let sum = 0;
   for (const t of trades) sum += t.profit / t.risk;
   return sum / trades.length;
+}
+
+function winRate(trades: { profit: number }[]) {
+  if (!trades.length) return 0;
+  return trades.filter(t => t.profit > 0).length / trades.length;
 }
 
 function equity(trades: { profit: number }[]) {
@@ -34,38 +22,57 @@ function equity(trades: { profit: number }[]) {
   return trades.map(t => (e += t.profit));
 }
 
-function maxDD(curve: number[]) {
-  let peak = 0, max = 0;
+function maxDrawdown(curve: number[]) {
+  let peak = 0;
+  let maxDD = 0;
+
   for (const v of curve) {
     if (v > peak) peak = v;
-    const dd = peak - v;
-    if (dd > max) max = dd;
+    const dd = (peak - v) / (peak || 1);
+    if (dd > maxDD) maxDD = dd;
   }
-  return max;
+
+  return maxDD;
 }
 
-function normalize(values: number[]) {
-  if (!values.length) return [];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  return values.map((v, i) => ({
-    x: i,
-    y: 100 - ((v - min) / span) * 100,
-  }));
+function avgWinLoss(trades: { profit: number; risk: number }[]) {
+  const wins = trades.filter(t => t.profit > 0);
+  const losses = trades.filter(t => t.profit < 0);
+
+  const avgWin =
+    wins.length === 0
+      ? 0
+      : wins.reduce((s, t) => s + t.profit / t.risk, 0) / wins.length;
+
+  const avgLoss =
+    losses.length === 0
+      ? 0
+      : Math.abs(
+          losses.reduce((s, t) => s + t.profit / t.risk, 0) / losses.length
+        );
+
+  return { avgWin, avgLoss };
 }
 
-function points(p: { x: number; y: number }[]) {
-  return p.map(v => `${v.x},${v.y}`).join(" ");
+/* ✅ Kelly */
+function kelly(win: number, avgWin: number, avgLoss: number) {
+  if (avgLoss === 0) return 0;
+
+  const b = avgWin / avgLoss;
+  const p = win;
+  const q = 1 - p;
+
+  const f = (b * p - q) / b;
+
+  return Math.max(0, f);
 }
 
-function shuffle<T>(arr: T[]) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+/* ✅ Adaptive drawdown scaling */
+function riskMultiplier(drawdown: number) {
+  if (drawdown < 0.1) return 1;
+  if (drawdown < 0.2) return 0.75;
+  if (drawdown < 0.3) return 0.5;
+  return 0.25;
 }
 
 /* ---------- page ---------- */
@@ -73,223 +80,121 @@ function shuffle<T>(arr: T[]) {
 export default function DashboardPage() {
   const { trades } = useTrades();
 
-  const [minTrades, setMinTrades] = useState(5);
-  const [mode, setMode] = useState<"none" | "all" | "accepted" | "top">("top");
-
-  const [acceptedRules, setAcceptedRules] = useState<Rule[]>([]);
-
-  useEffect(() => {
-    const raw = localStorage.getItem("acceptedRules");
-    if (raw) setAcceptedRules(JSON.parse(raw));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("acceptedRules", JSON.stringify(acceptedRules));
-  }, [acceptedRules]);
-
   const validTrades = useMemo(
     () => trades.filter(t => t.risk > 0),
     [trades]
   );
 
-  /* ---------- rules ---------- */
+  /* ----- core metrics ----- */
+  const avg = avgR(validTrades);
+  const wr = winRate(validTrades);
 
-  const rules = useMemo(() => {
-    const map = new Map<string, Map<Session, { sum: number; count: number }>>();
-
-    for (const t of validTrades) {
-      const s = getSession(t.date);
-      if (!s) continue;
-
-      const strat = t.strategy || "Unassigned";
-      const r = t.profit / t.risk;
-
-      if (!map.has(strat)) map.set(strat, new Map());
-      const row = map.get(strat)!;
-
-      const cell = row.get(s) ?? { sum: 0, count: 0 };
-      cell.sum += r;
-      cell.count += 1;
-      row.set(s, cell);
-    }
-
-    const out: Rule[] = [];
-    for (const [strat, row] of map.entries()) {
-      for (const [session, cell] of row.entries()) {
-        if (cell.count >= minTrades && cell.sum / cell.count < 0) {
-          out.push({ strategy: strat, session });
-        }
-      }
-    }
-    return out;
-  }, [validTrades, minTrades]);
-
-  /* ---------- ranking ---------- */
-
-  const ranked = useMemo(() => {
-    return rules
-      .map(rule => {
-        const filtered = validTrades.filter(t => {
-          const s = getSession(t.date);
-          if (!s) return true;
-          return !(t.strategy === rule.strategy && s === rule.session);
-        });
-        return { rule, delta: avgR(filtered) - avgR(validTrades) };
-      })
-      .sort((a, b) => b.delta - a.delta);
-  }, [rules, validTrades]);
-
-  const topRules = ranked.slice(0, 3).map(r => r.rule);
-
-  /* ---------- filtering ---------- */
-
-  function filter(tradesArr: typeof validTrades, active: Rule[]) {
-    return tradesArr.filter(t => {
-      const s = getSession(t.date);
-      if (!s) return true;
-      return !active.some(r => r.strategy === t.strategy && r.session === s);
-    });
-  }
-
-  const noRules = validTrades;
-  const allRules = filter(validTrades, rules);
-  const accepted = filter(validTrades, acceptedRules);
-  const top = filter(validTrades, topRules);
-
-  const selected =
-    mode === "none"
-      ? noRules
-      : mode === "all"
-      ? allRules
-      : mode === "accepted"
-      ? accepted
-      : top;
-
-  /* ---------- metrics ---------- */
-
-  const baseAvg = avgR(validTrades);
-  const selectedAvg = avgR(selected);
-
-  /* ---------- equity ---------- */
-
-  const baseCurve = normalize(equity(noRules));
-  const allCurve = normalize(equity(allRules));
-  const accCurve = normalize(equity(accepted));
-  const topCurve = normalize(equity(top));
-
-  const width = Math.max(
-    baseCurve.length,
-    allCurve.length,
-    accCurve.length,
-    topCurve.length,
-    1
-  );
-
-  /* ---------- monte carlo ---------- */
-
-  const mc = useMemo(() => {
-    const results = [];
-    for (let i = 0; i < 30; i++) {
-      const shuffled = shuffle(validTrades);
-      const eq = equity(shuffled);
-      results.push(eq[eq.length - 1] || 0);
-    }
-    return results;
-  }, [validTrades]);
-
-  const mcAvg = mc.reduce((s, v) => s + v, 0) / (mc.length || 1);
-
-  /* ---------- risk ---------- */
+  const { avgWin, avgLoss } = avgWinLoss(validTrades);
 
   const curve = equity(validTrades);
-  const dd = maxDD(curve);
+  const dd = maxDrawdown(curve);
+
+  /* ----- sizing ----- */
+  const kellySize = kelly(wr, avgWin, avgLoss);
+  const adaptiveSize = kellySize * riskMultiplier(dd);
+
+  /* ----- system state ----- */
+
+  const hasEdge = avg > 0;
+  const safeDrawdown = dd < 0.25;
+
+  const systemON = hasEdge && safeDrawdown;
 
   /* ---------- UI ---------- */
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6 text-gray-900 max-w-6xl">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        ✅ Final Trading System Dashboard
+        ✅ Production Trading System
       </h1>
 
-      {/* Controls */}
-      <div className="bg-white border p-4 mb-6 rounded space-y-3">
+      {/* Live Status */}
+      <div className="bg-white border rounded p-4 mb-6">
 
-        <label>Min Trades: {minTrades}</label>
-        <input
-          type="range"
-          min={1}
-          max={20}
-          value={minTrades}
-          onChange={e => setMinTrades(Number(e.target.value))}
-          className="w-full"
-        />
+        <h2 className="font-semibold mb-3">System Status</h2>
 
-        <div className="flex gap-2">
-          {["none","all","accepted","top"].map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m as any)}
-              className={`px-3 py-1 border rounded ${
-                mode === m ? "bg-blue-600 text-white" : ""
-              }`}
-            >
-              {m}
-            </button>
-          ))}
+        <div className="text-lg font-bold">
+          {systemON ? (
+            <span className="text-green-700">
+              ✅ SYSTEM ON (TRADE)
+            </span>
+          ) : (
+            <span className="text-red-700">
+              ❌ SYSTEM OFF (NO TRADE)
+            </span>
+          )}
+        </div>
+
+        <div className="mt-2 text-sm">
+          Edge: {hasEdge ? "Positive" : "Negative"}  
+          | Drawdown Safe: {safeDrawdown ? "Yes" : "No"}
         </div>
 
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="bg-white border rounded p-4 mb-6">
 
-        <div className="bg-white p-3 border rounded">
-          Avg R: {baseAvg.toFixed(2)}
-        </div>
+        <h2 className="font-semibold mb-2">Performance</h2>
 
-        <div className="bg-white p-3 border rounded">
-          Selected R: {selectedAvg.toFixed(2)}
-        </div>
-
-        <div className="bg-white p-3 border rounded text-red-700">
-          Max DD: {dd.toFixed(2)}
-        </div>
+        <div>Avg R: {avg.toFixed(2)}</div>
+        <div>Win Rate: {(wr * 100).toFixed(1)}%</div>
+        <div>Max Drawdown: {(dd * 100).toFixed(1)}%</div>
 
       </div>
 
-      {/* Equity */}
-      <div className="bg-white border p-4 mb-6 rounded">
-        <h2 className="mb-2 font-medium">Equity</h2>
+      {/* Position Sizing */}
+      <div className="bg-white border rounded p-4 mb-6">
 
-        <svg viewBox={`0 0 ${width} 100`} className="w-full h-48">
+        <h2 className="font-semibold mb-3">
+          Position Sizing (Live)
+        </h2>
 
-          <polyline points={points(baseCurve)} stroke="blue" fill="none" />
-          <polyline points={points(allCurve)} stroke="red" fill="none" />
-          <polyline points={points(accCurve)} stroke="green" fill="none" />
-          <polyline points={points(topCurve)} stroke="purple" fill="none" />
+        <div className="space-y-2 text-sm">
 
-        </svg>
-      </div>
-
-      {/* Rules */}
-      <div className="bg-white border p-4 rounded">
-
-        <h2 className="mb-2">Rule Ranking</h2>
-
-        {ranked.map((r,i)=>(
-          <div key={i} className="flex justify-between text-sm">
-            <span>{r.rule.strategy} @ {r.rule.session}</span>
-            <span>{r.delta.toFixed(2)}</span>
+          <div className="flex justify-between">
+            <span>Kelly:</span>
+            <span>{(kellySize * 100).toFixed(1)}%</span>
           </div>
-        ))}
+
+          <div className="flex justify-between">
+            <span>Adaptive Size:</span>
+            <span className="text-green-700">
+              {(adaptiveSize * 100).toFixed(1)}%
+            </span>
+          </div>
+
+        </div>
 
       </div>
 
-      {/* Monte Carlo */}
-      <div className="bg-white border p-4 rounded mt-6">
-        Monte Carlo Avg Outcome: {mcAvg.toFixed(2)}
+      {/* Risk */}
+      <div className="bg-white border rounded p-4">
+
+        <h2 className="font-semibold mb-2">Risk Control</h2>
+
+        <div className="text-sm space-y-1">
+
+          <div>
+            ❌ Stop trading if Avg R ≤ 0
+          </div>
+
+          <div>
+            ❌ Stop trading if Drawdown ≥ 25%
+          </div>
+
+          <div>
+            ✅ Reduce size dynamically during drawdowns
+          </div>
+
+        </div>
+
       </div>
 
     </main>
