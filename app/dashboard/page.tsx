@@ -12,13 +12,10 @@ function avgR(trades: { profit: number; risk: number }[]) {
   return sum / trades.length;
 }
 
-function shuffle<T>(arr: T[]) {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
+function winRate(trades: { profit: number }[]) {
+  if (trades.length === 0) return 0;
+  const wins = trades.filter(t => t.profit > 0).length;
+  return wins / trades.length;
 }
 
 function equity(trades: { profit: number }[]) {
@@ -26,43 +23,64 @@ function equity(trades: { profit: number }[]) {
   return trades.map(t => (e += t.profit));
 }
 
+function maxDrawdown(trades: { profit: number }[]) {
+  const curve = equity(trades);
+  let peak = 0;
+  let maxDD = 0;
+
+  for (const v of curve) {
+    if (v > peak) peak = v;
+    const dd = peak - v;
+    if (dd > maxDD) maxDD = dd;
+  }
+
+  return maxDD;
+}
+
+function riskOfRuin(win: number, avgWin: number, avgLoss: number) {
+  if (avgLoss === 0) return 0;
+
+  const b = avgWin / Math.abs(avgLoss);
+  const p = win;
+  const q = 1 - p;
+
+  if (b <= 0 || p <= 0 || p >= 1) return 1;
+
+  return Math.pow(q / (p * b), 1);
+}
+
 /* ---------- page ---------- */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
-  const [runs, setRuns] = useState(50);
+  const [minTrades, setMinTrades] = useState(5);
 
   const validTrades = useMemo(
     () => trades.filter(t => t.risk > 0),
     [trades]
   );
 
-  /* ✅ Monte Carlo simulation */
+  /* ---------- metrics ---------- */
 
-  const simulations = useMemo(() => {
-    if (validTrades.length === 0) return [];
+  const avg = avgR(validTrades);
+  const wr = winRate(validTrades);
 
-    const results: number[] = [];
+  const wins = validTrades.filter(t => t.profit > 0);
+  const losses = validTrades.filter(t => t.profit < 0);
 
-    for (let i = 0; i < runs; i++) {
-      const shuffled = shuffle(validTrades);
-      const eq = equity(shuffled);
-      const final = eq[eq.length - 1] || 0;
-      results.push(final);
-    }
-
-    return results;
-  }, [validTrades, runs]);
-
-  /* ✅ metrics */
-
-  const avgResult =
-    simulations.length === 0
+  const avgWin =
+    wins.length === 0
       ? 0
-      : simulations.reduce((s, v) => s + v, 0) / simulations.length;
+      : wins.reduce((s, t) => s + t.profit / t.risk, 0) / wins.length;
 
-  const best = Math.max(...simulations, 0);
-  const worst = Math.min(...simulations, 0);
+  const avgLoss =
+    losses.length === 0
+      ? 0
+      : losses.reduce((s, t) => s + t.profit / t.risk, 0) / losses.length;
+
+  const drawdown = maxDrawdown(validTrades);
+
+  const ruin = riskOfRuin(wr, avgWin, avgLoss);
 
   /* ---------- UI ---------- */
 
@@ -70,32 +88,66 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        Monte Carlo Simulation
+        Risk Engine Dashboard
       </h1>
 
       {/* Control */}
       <div className="bg-white border rounded p-4 mb-6">
-        <label>Simulation runs: {runs}</label>
+        <label>Min trades: {minTrades}</label>
         <input
           type="range"
-          min={10}
-          max={200}
-          value={runs}
-          onChange={e => setRuns(Number(e.target.value))}
+          min={1}
+          max={20}
+          value={minTrades}
+          onChange={e => setMinTrades(Number(e.target.value))}
           className="w-full"
         />
       </div>
 
-      {/* Results */}
+      {/* Core metrics */}
+      <div className="bg-white border rounded p-4 mb-6 space-y-2">
+        <h2 className="font-semibold">Performance</h2>
+
+        <div>Avg R: {avg.toFixed(2)}</div>
+        <div>Win rate: {(wr * 100).toFixed(1)}%</div>
+        <div>Avg Win R: {avgWin.toFixed(2)}</div>
+        <div>Avg Loss R: {avgLoss.toFixed(2)}</div>
+      </div>
+
+      {/* Risk metrics */}
       <div className="bg-white border rounded p-4">
 
-        <h2 className="font-semibold mb-3">Results</h2>
+        <h2 className="font-semibold mb-3">Risk Analysis</h2>
 
         <div className="space-y-2 text-sm">
-          <div>Average outcome: {avgResult.toFixed(2)}</div>
-          <div className="text-green-700">Best: {best.toFixed(2)}</div>
-          <div className="text-red-700">Worst: {worst.toFixed(2)}</div>
+
+          <div className="flex justify-between">
+            <span>Max Drawdown:</span>
+            <span className="text-red-700">
+              {drawdown.toFixed(2)}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Risk of Ruin:</span>
+            <span
+              className={
+                ruin < 0.2
+                  ? "text-green-700"
+                  : ruin < 0.5
+                  ? "text-yellow-600"
+                  : "text-red-700"
+              }
+            >
+              {(ruin * 100).toFixed(1)}%
+            </span>
+          </div>
+
         </div>
+
+        <p className="text-xs text-gray-500 mt-3">
+          Risk of ruin is an approximation based on your win rate and R distribution.
+        </p>
 
       </div>
 
