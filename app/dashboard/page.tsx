@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTrades } from "../context/TradesContext";
 
 /* ---------- helpers ---------- */
@@ -30,14 +30,12 @@ function maxDD(curve: number[]) {
 export default function DashboardPage() {
   const { trades } = useTrades();
 
-  const [strategyInput, setStrategyInput] = useState("ORB");
-
   const validTrades = useMemo(
     () => trades.filter(t => t.risk > 0),
     [trades]
   );
 
-  /* ---------- system metrics ---------- */
+  /* ---------- system state ---------- */
 
   const avg = avgR(validTrades);
   const recent = avgR(validTrades.slice(-20));
@@ -45,7 +43,7 @@ export default function DashboardPage() {
   const curve = equity(validTrades);
   const dd = maxDD(curve);
 
-  /* ---------- regime detection ---------- */
+  /* ---------- regime ---------- */
 
   let regime = "NEUTRAL";
   let allowedStrategies: string[] = [];
@@ -61,15 +59,16 @@ export default function DashboardPage() {
     allowedStrategies = ["ORB", "Momentum"];
   }
 
-  /* ---------- trade gate logic ---------- */
+  /* ---------- trade gate ---------- */
 
-  function evaluateTrade(strategy: string) {
+  function evaluateTrade(t: any) {
+    const strategy = t.strategy || "";
 
     if (regime === "DANGER") {
       return {
         status: "BLOCKED",
         size: 0,
-        reason: "System in danger state (drawdown or negative edge)"
+        reason: "System unsafe (drawdown or negative edge)"
       };
     }
 
@@ -77,7 +76,7 @@ export default function DashboardPage() {
       return {
         status: "BLOCKED",
         size: 0,
-        reason: "Not allowed in current market regime"
+        reason: "Wrong strategy for current regime"
       };
     }
 
@@ -85,38 +84,38 @@ export default function DashboardPage() {
       return {
         status: "REDUCED",
         size: 0.5,
-        reason: "Choppy market — reduce exposure"
+        reason: "Choppy market requires smaller size"
       };
     }
 
     return {
       status: "APPROVED",
       size: 1,
-      reason: "System conditions optimal"
+      reason: "Optimal conditions"
     };
   }
 
-  const decision = evaluateTrade(strategyInput);
+  const evaluated = validTrades.map(t => ({
+    ...t,
+    decision: evaluateTrade(t),
+  }));
 
-  /* ---------- UI colors ---------- */
+  /* ---------- counts ---------- */
 
-  const statusColor =
-    decision.status === "APPROVED"
-      ? "bg-green-600"
-      : decision.status === "REDUCED"
-      ? "bg-yellow-500"
-      : "bg-red-600";
+  const approved = evaluated.filter(t => t.decision.status === "APPROVED").length;
+  const reduced = evaluated.filter(t => t.decision.status === "REDUCED").length;
+  const blocked = evaluated.filter(t => t.decision.status === "BLOCKED").length;
 
   /* ---------- UI ---------- */
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-6xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        🧠 Trade Gate UI
+        🤖 Auto‑Filled Trade Gate
       </h1>
 
-      {/* System State */}
+      {/* System */}
       <div className="bg-white border p-4 rounded mb-6">
         <h2 className="font-semibold mb-2">System State</h2>
 
@@ -125,47 +124,59 @@ export default function DashboardPage() {
         <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
       </div>
 
-      {/* Trade Input */}
+      {/* Summary */}
       <div className="bg-white border p-4 rounded mb-6">
-        <h2 className="font-semibold mb-2">Trade Input</h2>
 
-        <select
-          value={strategyInput}
-          onChange={(e) => setStrategyInput(e.target.value)}
-          className="border px-2 py-1"
-        >
-          <option>ORB</option>
-          <option>Momentum</option>
-          <option>VWAP Reversion</option>
-        </select>
-      </div>
+        <h2 className="font-semibold mb-2">Execution Summary</h2>
 
-      {/* ✅ Trade Decision */}
-      <div className={`${statusColor} text-white p-5 rounded mb-6`}>
-
-        <div className="text-xl font-semibold">
-          {decision.status}
-        </div>
-
-        <div className="mt-2">
-          Size Multiplier: {decision.size}
-        </div>
-
-        <div className="text-sm mt-2">
-          {decision.reason}
-        </div>
+        <div className="text-green-700">✅ Approved: {approved}</div>
+        <div className="text-yellow-600">⚠️ Reduced: {reduced}</div>
+        <div className="text-red-700">❌ Blocked: {blocked}</div>
 
       </div>
 
-      {/* Allowed strategies */}
+      {/* Trade list */}
       <div className="bg-white border p-4 rounded">
-        <h2 className="font-semibold mb-2">
-          Allowed Strategies
+
+        <h2 className="font-semibold mb-3">
+          Trade Decisions
         </h2>
 
-        {allowedStrategies.length > 0
-          ? allowedStrategies.join(", ")
-          : "🚫 No trading allowed"}
+        {evaluated.length === 0 ? (
+          <p>No trades available</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left">Strategy</th>
+                <th className="text-left">Result</th>
+                <th className="text-left">Decision</th>
+                <th className="text-left">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {evaluated.map((t, i) => (
+                <tr key={i} className="border-b">
+                  <td>{t.strategy}</td>
+                  <td>{t.profit.toFixed(2)}</td>
+                  <td
+                    className={
+                      t.decision.status === "APPROVED"
+                        ? "text-green-700"
+                        : t.decision.status === "REDUCED"
+                        ? "text-yellow-600"
+                        : "text-red-700"
+                    }
+                  >
+                    {t.decision.status}
+                  </td>
+                  <td>{t.decision.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
       </div>
 
     </main>
