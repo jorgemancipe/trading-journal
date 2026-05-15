@@ -1,9 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useTrades } from "../context/TradesContext";
-
-/* ================== Types ================== */
 
 type Session = "Open" | "Midday" | "PowerHour";
 
@@ -12,10 +10,9 @@ type Rule = {
   session: Session;
 };
 
-/* ================== Helpers ================== */
+/* ---------- helpers ---------- */
 
 function getSession(date: string): Session | null {
-  // Requires time in date string: YYYY-MM-DDTHH:mm
   if (!date.includes("T")) return null;
 
   const d = new Date(date);
@@ -39,39 +36,41 @@ function avgR(trades: { profit: number; risk: number }[]) {
   return sum / trades.length;
 }
 
-/* ================== Page ================== */
+/* ---------- page ---------- */
 
 export default function DashboardPage() {
   const { trades } = useTrades();
 
   const [minTrades, setMinTrades] = useState(5);
   const [simulate, setSimulate] = useState(false);
+  const [acceptedRules, setAcceptedRules] = useState<Rule[]>([]);
 
-  const [acceptedRules, setAcceptedRules] = useState<Rule[]>(() => {
+  /* ✅ Load accepted rules CLIENT‑SIDE ONLY */
+  useEffect(() => {
     try {
       const raw = localStorage.getItem("acceptedRules");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+      if (raw) setAcceptedRules(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  /* ✅ Persist accepted rules */
+  useEffect(() => {
+    try {
+      localStorage.setItem("acceptedRules", JSON.stringify(acceptedRules));
+    } catch {}
+  }, [acceptedRules]);
 
   function toggleRule(rule: Rule) {
-    setAcceptedRules((prev) => {
-      const exists = prev.some(
+    setAcceptedRules((prev) =>
+      prev.some(
         (r) => r.strategy === rule.strategy && r.session === rule.session
-      );
-
-      const next = exists
+      )
         ? prev.filter(
             (r) =>
               !(r.strategy === rule.strategy && r.session === rule.session)
           )
-        : [...prev, rule];
-
-      localStorage.setItem("acceptedRules", JSON.stringify(next));
-      return next;
-    });
+        : [...prev, rule]
+    );
   }
 
   const validTrades = useMemo(
@@ -79,7 +78,7 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---- Build rules from data ---- */
+  /* ---- Build rules ---- */
 
   const rules = useMemo<Rule[]>(() => {
     const map = new Map<
@@ -114,5 +113,150 @@ export default function DashboardPage() {
     return out;
   }, [validTrades, minTrades]);
 
-  /* ---- Simulated trades (accepted rules only) ---- */
+  /* ---- Simulation (accepted rules only) ---- */
 
+  const simulatedTrades = useMemo(() => {
+    if (!simulate) return validTrades;
+
+    return validTrades.filter((t) => {
+      const s = getSession(t.date);
+      if (!s) return true;
+      return !acceptedRules.some(
+        (r) => r.strategy === t.strategy && r.session === s
+      );
+    });
+  }, [simulate, validTrades, acceptedRules]);
+
+  const baseAvg = avgR(validTrades);
+  const simAvg = avgR(simulatedTrades);
+
+  /* ---- Per‑rule impact ---- */
+
+  const perRuleImpact = useMemo(() => {
+    return rules
+      .map((rule) => {
+        const filtered = validTrades.filter((t) => {
+          const s = getSession(t.date);
+          if (!s) return true;
+          return !(t.strategy === rule.strategy && s === rule.session);
+        });
+
+        return {
+          rule,
+          removed: validTrades.length - filtered.length,
+          delta: avgR(filtered) - baseAvg,
+        };
+      })
+      .sort((a, b) => b.delta - a.delta);
+  }, [rules, validTrades, baseAvg]);
+
+  /* ---------- UI ---------- */
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
+      <h1 className="text-3xl font-bold mb-6">
+        Strategy Rule Simulation
+      </h1>
+
+      <div className="bg-white border rounded p-4 mb-6 space-y-4">
+        <div>
+          <label className="text-sm font-medium">
+            Minimum trades: {minTrades}
+          </label>
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={minTrades}
+            onChange={(e) => setMinTrades(Number(e.target.value))}
+            className="w-full"
+          />
+        </div>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={simulate}
+            onChange={(e) => setSimulate(e.target.checked)}
+          />
+          <span>Simulate Apply Accepted Rules</span>
+        </label>
+      </div>
+
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-2">Overall Impact</h2>
+        <div className="text-sm space-y-1">
+          <div>Original Avg R: {baseAvg.toFixed(2)}</div>
+          <div>Simulated Avg R: {simAvg.toFixed(2)}</div>
+          <div
+            className={
+              simAvg - baseAvg >= 0
+                ? "text-green-700 font-semibold"
+                : "text-red-700 font-semibold"
+            }
+          >
+            Δ Avg R: {(simAvg - baseAvg).toFixed(2)}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border rounded p-4">
+        <h2 className="font-semibold mb-3">Per‑Rule Impact</h2>
+
+        {perRuleImpact.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            No rules triggered.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-1">Rule</th>
+                <th className="text-right py-1">Removed</th>
+                <th className="text-right py-1">Δ Avg R</th>
+                <th className="text-right py-1">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perRuleImpact.map((r, i) => {
+                const active = acceptedRules.some(
+                  (a) =>
+                    a.strategy === r.rule.strategy &&
+                    a.session === r.rule.session
+                );
+
+                return (
+                  <tr key={i} className="border-b">
+                    <td className="py-1">
+                      Disable {r.rule.strategy} during {r.rule.session}
+                    </td>
+                    <td className="text-right">{r.removed}</td>
+                    <td
+                      className={`text-right ${
+                        r.delta >= 0 ? "text-green-700" : "text-red-700"
+                      }`}
+                    >
+                      {r.delta.toFixed(2)}
+                    </td>
+                    <td className="text-right">
+                      <button
+                        onClick={() => toggleRule(r.rule)}
+                        className={`px-2 py-1 text-xs border rounded ${
+                          active
+                            ? "bg-green-600 text-white"
+                            : "bg-gray-100"
+                        }`}
+                      >
+                        {active ? "Accepted" : "Ignore"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </main>
+  );
+}
