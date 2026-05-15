@@ -4,11 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useTrades } from "../context/TradesContext";
 
 type Session = "Open" | "Midday" | "PowerHour";
-
-type Rule = {
-  strategy: string;
-  session: Session;
-};
+type Rule = { strategy: string; session: Session };
 
 /* ---------- helpers ---------- */
 
@@ -36,6 +32,26 @@ function avgR(trades: { profit: number; risk: number }[]) {
   return sum / trades.length;
 }
 
+function equityCurve(trades: { profit: number }[]) {
+  let e = 0;
+  return trades.map((t) => (e += t.profit));
+}
+
+function normalize(values: number[]) {
+  if (values.length === 0) return [];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values.map((v, i) => ({
+    x: i,
+    y: 100 - ((v - min) / span) * 100,
+  }));
+}
+
+function pointsAttr(points: { x: number; y: number }[]) {
+  return points.map((p) => `${p.x},${p.y}`).join(" ");
+}
+
 /* ---------- page ---------- */
 
 export default function DashboardPage() {
@@ -45,7 +61,7 @@ export default function DashboardPage() {
   const [simulate, setSimulate] = useState(false);
   const [acceptedRules, setAcceptedRules] = useState<Rule[]>([]);
 
-  /* ✅ Load accepted rules CLIENT‑SIDE ONLY */
+  /* ✅ Safe client‑side persistence */
   useEffect(() => {
     try {
       const raw = localStorage.getItem("acceptedRules");
@@ -53,7 +69,6 @@ export default function DashboardPage() {
     } catch {}
   }, []);
 
-  /* ✅ Persist accepted rules */
   useEffect(() => {
     try {
       localStorage.setItem("acceptedRules", JSON.stringify(acceptedRules));
@@ -78,7 +93,7 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---- Build rules ---- */
+  /* ---------- rule generation ---------- */
 
   const rules = useMemo<Rule[]>(() => {
     const map = new Map<
@@ -87,8 +102,8 @@ export default function DashboardPage() {
     >();
 
     for (const t of validTrades) {
-      const session = getSession(t.date);
-      if (!session) continue;
+      const s = getSession(t.date);
+      if (!s) continue;
 
       const strategy = t.strategy || "Unassigned";
       const r = t.profit / t.risk;
@@ -96,10 +111,10 @@ export default function DashboardPage() {
       if (!map.has(strategy)) map.set(strategy, new Map());
       const row = map.get(strategy)!;
 
-      const cell = row.get(session) ?? { sum: 0, count: 0 };
+      const cell = row.get(s) ?? { sum: 0, count: 0 };
       cell.sum += r;
       cell.count += 1;
-      row.set(session, cell);
+      row.set(s, cell);
     }
 
     const out: Rule[] = [];
@@ -113,7 +128,7 @@ export default function DashboardPage() {
     return out;
   }, [validTrades, minTrades]);
 
-  /* ---- Simulation (accepted rules only) ---- */
+  /* ---------- simulation (accepted rules only) ---------- */
 
   const simulatedTrades = useMemo(() => {
     if (!simulate) return validTrades;
@@ -127,41 +142,30 @@ export default function DashboardPage() {
     });
   }, [simulate, validTrades, acceptedRules]);
 
+  /* ---------- metrics ---------- */
+
   const baseAvg = avgR(validTrades);
   const simAvg = avgR(simulatedTrades);
 
-  /* ---- Per‑rule impact ---- */
+  /* ---------- equity curves ---------- */
 
-  const perRuleImpact = useMemo(() => {
-    return rules
-      .map((rule) => {
-        const filtered = validTrades.filter((t) => {
-          const s = getSession(t.date);
-          if (!s) return true;
-          return !(t.strategy === rule.strategy && s === rule.session);
-        });
-
-        return {
-          rule,
-          removed: validTrades.length - filtered.length,
-          delta: avgR(filtered) - baseAvg,
-        };
-      })
-      .sort((a, b) => b.delta - a.delta);
-  }, [rules, validTrades, baseAvg]);
+  const baseCurve = normalize(equityCurve(validTrades));
+  const simCurve = normalize(equityCurve(simulatedTrades));
+  const width = Math.max(baseCurve.length, simCurve.length, 1);
 
   /* ---------- UI ---------- */
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
+    <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
       <h1 className="text-3xl font-bold mb-6">
-        Strategy Rule Simulation
+        Strategy Rules + Equity Curve
       </h1>
 
+      {/* Controls */}
       <div className="bg-white border rounded p-4 mb-6 space-y-4">
         <div>
           <label className="text-sm font-medium">
-            Minimum trades: {minTrades}
+            Minimum trades for rules: {minTrades}
           </label>
           <input
             type="range"
@@ -183,6 +187,7 @@ export default function DashboardPage() {
         </label>
       </div>
 
+      {/* Overall impact */}
       <div className="bg-white border rounded p-4 mb-6">
         <h2 className="font-semibold mb-2">Overall Impact</h2>
         <div className="text-sm space-y-1">
@@ -200,61 +205,80 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="bg-white border rounded p-4">
-        <h2 className="font-semibold mb-3">Per‑Rule Impact</h2>
+      {/* Equity Curve Comparison */}
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-3">
+          Equity Curve (Before vs After)
+        </h2>
 
-        {perRuleImpact.length === 0 ? (
+        <div className="flex gap-4 text-sm mb-2">
+          <span className="flex items-center gap-2">
+            <span className="w-3 h-3 bg-blue-600 inline-block" />
+            Original
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="w-3 h-3 bg-green-600 inline-block" />
+            Simulated
+          </span>
+        </div>
+
+        <svg viewBox={`0 0 ${width} 100`} className="w-full h-64">
+          <polyline
+            points={pointsAttr(baseCurve)}
+            fill="none"
+            stroke="#2563eb"
+            strokeWidth="2"
+          />
+          <polyline
+            points={pointsAttr(simCurve)}
+            fill="none"
+            stroke="#16a34a"
+            strokeWidth="2"
+          />
+        </svg>
+
+        <p className="text-xs text-gray-500 mt-2">
+          Curves are normalized to compare shape and drawdown, not dollar size.
+        </p>
+      </div>
+
+      {/* Rule selection */}
+      <div className="bg-white border rounded p-4">
+        <h2 className="font-semibold mb-3">Rule Control</h2>
+
+        {rules.length === 0 ? (
           <p className="text-sm text-gray-500">
-            No rules triggered.
+            No rules triggered (insufficient data or no session time).
           </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-1">Rule</th>
-                <th className="text-right py-1">Removed</th>
-                <th className="text-right py-1">Δ Avg R</th>
-                <th className="text-right py-1">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {perRuleImpact.map((r, i) => {
-                const active = acceptedRules.some(
-                  (a) =>
-                    a.strategy === r.rule.strategy &&
-                    a.session === r.rule.session
-                );
+          <ul className="space-y-2 text-sm">
+            {rules.map((rule, i) => {
+              const active = acceptedRules.some(
+                (r) =>
+                  r.strategy === rule.strategy &&
+                  r.session === rule.session
+              );
 
-                return (
-                  <tr key={i} className="border-b">
-                    <td className="py-1">
-                      Disable {r.rule.strategy} during {r.rule.session}
-                    </td>
-                    <td className="text-right">{r.removed}</td>
-                    <td
-                      className={`text-right ${
-                        r.delta >= 0 ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {r.delta.toFixed(2)}
-                    </td>
-                    <td className="text-right">
-                      <button
-                        onClick={() => toggleRule(r.rule)}
-                        className={`px-2 py-1 text-xs border rounded ${
-                          active
-                            ? "bg-green-600 text-white"
-                            : "bg-gray-100"
-                        }`}
-                      >
-                        {active ? "Accepted" : "Ignore"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+              return (
+                <li key={i} className="flex justify-between items-center">
+                  <span>
+                    Disable <strong>{rule.strategy}</strong> during{" "}
+                    <strong>{rule.session}</strong>
+                  </span>
+                  <button
+                    onClick={() => toggleRule(rule)}
+                    className={`px-3 py-1 border rounded ${
+                      active
+                        ? "bg-green-600 text-white"
+                        : "bg-gray-100"
+                    }`}
+                  >
+                    {active ? "Accepted" : "Ignore"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
     </main>
