@@ -16,7 +16,8 @@ function equity(trades: { profit: number }[]) {
 }
 
 function maxDD(curve: number[]) {
-  let peak = 0, max = 0;
+  let peak = 0;
+  let max = 0;
   for (const v of curve) {
     if (v > peak) peak = v;
     const dd = (peak - v) / (peak || 1);
@@ -35,8 +36,6 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---------- system stats ---------- */
-
   const avg = avgR(validTrades);
   const recent = avgR(validTrades.slice(-20));
 
@@ -46,52 +45,47 @@ export default function DashboardPage() {
   /* ---------- regime ---------- */
 
   let regime = "NEUTRAL";
+  let allowedStrategies: string[] = [];
 
-  if (avg <= 0 || dd >= 0.25) regime = "DANGER";
-  else if (Math.abs(recent - avg) > 0.2 || dd >= 0.15) regime = "CHOPPY";
-  else if (avg > 0.2 && recent >= avg && dd < 0.1) regime = "TRENDING";
+  if (avg <= 0 || dd >= 0.25) {
+    regime = "DANGER";
+    allowedStrategies = [];
+  } else if (Math.abs(recent - avg) > 0.2 || dd >= 0.15) {
+    regime = "CHOPPY";
+    allowedStrategies = ["VWAP Reversion"];
+  } else {
+    regime = "TRENDING";
+    allowedStrategies = ["ORB", "Momentum"];
+  }
 
-  /* ---------- allowed strategies ---------- */
-
-  const allowedStrategies =
-    regime === "TRENDING"
-      ? ["ORB", "Momentum"]
-      : regime === "CHOPPY"
-      ? ["VWAP Reversion"]
-      : [];
-
-  /* ---------- execution engine ---------- */
+  /* ---------- execution ---------- */
 
   function evaluateTrade(trade: any) {
-    const strategy = trade.strategy || "Unknown";
+    const strategy = trade.strategy || "";
 
-    // ❌ FULL BLOCK
     if (regime === "DANGER") {
       return { status: "BLOCKED", size: 0 };
     }
 
-    // ❌ STRATEGY BLOCK
     if (!allowedStrategies.includes(strategy)) {
       return { status: "BLOCKED", size: 0 };
     }
 
-    // ⚠️ REDUCE SIZE
     if (regime === "CHOPPY") {
       return { status: "REDUCED", size: 0.5 };
     }
 
-    // ✅ FULL APPROVE
-    return { status: "APPROVED", size: 1.0 };
+    return { status: "APPROVED", size: 1 };
   }
 
-  const evaluatedTrades = validTrades.map(t => ({
+  const evaluated = validTrades.map(t => ({
     ...t,
     decision: evaluateTrade(t),
   }));
 
-  const blocked = evaluatedTrades.filter(t => t.decision.status === "BLOCKED").length;
-  const reduced = evaluatedTrades.filter(t => t.decision.status === "REDUCED").length;
-  const approved = evaluatedTrades.filter(t => t.decision.status === "APPROVED").length;
+  const approved = evaluated.filter(t => t.decision.status === "APPROVED").length;
+  const reduced = evaluated.filter(t => t.decision.status === "REDUCED").length;
+  const blocked = evaluated.filter(t => t.decision.status === "BLOCKED").length;
 
   /* ---------- UI ---------- */
 
@@ -102,6 +96,34 @@ export default function DashboardPage() {
         ⚙️ Auto Execution Engine
       </h1>
 
-      {/* System Status */}
+      {/* System */}
       <div className="bg-white border p-4 rounded mb-6">
+        <h2 className="font-semibold mb-2">System State</h2>
+        <div>Regime: {regime}</div>
+        <div>Avg R: {avg.toFixed(2)}</div>
+        <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
+      </div>
 
+      {/* Execution */}
+      <div className="bg-white border p-4 rounded mb-6">
+        <h2 className="font-semibold mb-2">Execution Control</h2>
+
+        <div className="text-green-700">✅ Approved: {approved}</div>
+        <div className="text-yellow-600">⚠️ Reduced: {reduced}</div>
+        <div className="text-red-700">❌ Blocked: {blocked}</div>
+      </div>
+
+      {/* Strategies */}
+      <div className="bg-white border p-4 rounded">
+        <h2 className="font-semibold mb-2">Allowed Strategies</h2>
+
+        {allowedStrategies.length > 0 ? (
+          <div>{allowedStrategies.join(", ")}</div>
+        ) : (
+          <div className="text-red-700">🚫 No trading allowed</div>
+        )}
+      </div>
+
+    </main>
+  );
+}
