@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
 /* ---------- helpers ---------- */
@@ -16,8 +16,7 @@ function equity(trades: { profit: number }[]) {
 }
 
 function maxDD(curve: number[]) {
-  let peak = 0;
-  let max = 0;
+  let peak = 0, max = 0;
   for (const v of curve) {
     if (v > peak) peak = v;
     const dd = (peak - v) / (peak || 1);
@@ -31,10 +30,14 @@ function maxDD(curve: number[]) {
 export default function DashboardPage() {
   const { trades } = useTrades();
 
+  const [strategyInput, setStrategyInput] = useState("ORB");
+
   const validTrades = useMemo(
     () => trades.filter(t => t.risk > 0),
     [trades]
   );
+
+  /* ---------- system metrics ---------- */
 
   const avg = avgR(validTrades);
   const recent = avgR(validTrades.slice(-20));
@@ -42,7 +45,7 @@ export default function DashboardPage() {
   const curve = equity(validTrades);
   const dd = maxDD(curve);
 
-  /* ---------- regime ---------- */
+  /* ---------- regime detection ---------- */
 
   let regime = "NEUTRAL";
   let allowedStrategies: string[] = [];
@@ -58,34 +61,51 @@ export default function DashboardPage() {
     allowedStrategies = ["ORB", "Momentum"];
   }
 
-  /* ---------- execution ---------- */
+  /* ---------- trade gate logic ---------- */
 
-  function evaluateTrade(trade: any) {
-    const strategy = trade.strategy || "";
+  function evaluateTrade(strategy: string) {
 
     if (regime === "DANGER") {
-      return { status: "BLOCKED", size: 0 };
+      return {
+        status: "BLOCKED",
+        size: 0,
+        reason: "System in danger state (drawdown or negative edge)"
+      };
     }
 
     if (!allowedStrategies.includes(strategy)) {
-      return { status: "BLOCKED", size: 0 };
+      return {
+        status: "BLOCKED",
+        size: 0,
+        reason: "Not allowed in current market regime"
+      };
     }
 
     if (regime === "CHOPPY") {
-      return { status: "REDUCED", size: 0.5 };
+      return {
+        status: "REDUCED",
+        size: 0.5,
+        reason: "Choppy market — reduce exposure"
+      };
     }
 
-    return { status: "APPROVED", size: 1 };
+    return {
+      status: "APPROVED",
+      size: 1,
+      reason: "System conditions optimal"
+    };
   }
 
-  const evaluated = validTrades.map(t => ({
-    ...t,
-    decision: evaluateTrade(t),
-  }));
+  const decision = evaluateTrade(strategyInput);
 
-  const approved = evaluated.filter(t => t.decision.status === "APPROVED").length;
-  const reduced = evaluated.filter(t => t.decision.status === "REDUCED").length;
-  const blocked = evaluated.filter(t => t.decision.status === "BLOCKED").length;
+  /* ---------- UI colors ---------- */
+
+  const statusColor =
+    decision.status === "APPROVED"
+      ? "bg-green-600"
+      : decision.status === "REDUCED"
+      ? "bg-yellow-500"
+      : "bg-red-600";
 
   /* ---------- UI ---------- */
 
@@ -93,35 +113,59 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-5xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        ⚙️ Auto Execution Engine
+        🧠 Trade Gate UI
       </h1>
 
-      {/* System */}
+      {/* System State */}
       <div className="bg-white border p-4 rounded mb-6">
         <h2 className="font-semibold mb-2">System State</h2>
+
         <div>Regime: {regime}</div>
         <div>Avg R: {avg.toFixed(2)}</div>
         <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
       </div>
 
-      {/* Execution */}
+      {/* Trade Input */}
       <div className="bg-white border p-4 rounded mb-6">
-        <h2 className="font-semibold mb-2">Execution Control</h2>
+        <h2 className="font-semibold mb-2">Trade Input</h2>
 
-        <div className="text-green-700">✅ Approved: {approved}</div>
-        <div className="text-yellow-600">⚠️ Reduced: {reduced}</div>
-        <div className="text-red-700">❌ Blocked: {blocked}</div>
+        <select
+          value={strategyInput}
+          onChange={(e) => setStrategyInput(e.target.value)}
+          className="border px-2 py-1"
+        >
+          <option>ORB</option>
+          <option>Momentum</option>
+          <option>VWAP Reversion</option>
+        </select>
       </div>
 
-      {/* Strategies */}
-      <div className="bg-white border p-4 rounded">
-        <h2 className="font-semibold mb-2">Allowed Strategies</h2>
+      {/* ✅ Trade Decision */}
+      <div className={`${statusColor} text-white p-5 rounded mb-6`}>
 
-        {allowedStrategies.length > 0 ? (
-          <div>{allowedStrategies.join(", ")}</div>
-        ) : (
-          <div className="text-red-700">🚫 No trading allowed</div>
-        )}
+        <div className="text-xl font-semibold">
+          {decision.status}
+        </div>
+
+        <div className="mt-2">
+          Size Multiplier: {decision.size}
+        </div>
+
+        <div className="text-sm mt-2">
+          {decision.reason}
+        </div>
+
+      </div>
+
+      {/* Allowed strategies */}
+      <div className="bg-white border p-4 rounded">
+        <h2 className="font-semibold mb-2">
+          Allowed Strategies
+        </h2>
+
+        {allowedStrategies.length > 0
+          ? allowedStrategies.join(", ")
+          : "🚫 No trading allowed"}
       </div>
 
     </main>
