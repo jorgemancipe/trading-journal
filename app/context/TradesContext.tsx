@@ -56,3 +56,14 @@ export function useTrades() {
 
 export type Trade = {
   id: number;
+  date: string;
+  symbol: string;
+  strategy: string;
+  side: "Buy" | "Sell";   // ✅ MUST exist
+  quantity: number;       // ✅ MUST exist
+  entry: number;
+  exit: number;
+  profit: number;
+  risk: number;
+};
+``
