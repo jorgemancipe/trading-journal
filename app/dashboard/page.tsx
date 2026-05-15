@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
 
 type Session = "Open" | "Midday" | "PowerHour";
@@ -36,7 +36,6 @@ function avgR(trades: { profit: number; risk: number }[]) {
 
 export default function DashboardPage() {
   const { trades } = useTrades();
-
   const [minTrades, setMinTrades] = useState(5);
 
   const validTrades = useMemo(
@@ -44,12 +43,17 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---------- build rules ---------- */
+  /* ✅ Split data (70/30 walk-forward) */
+  const splitIndex = Math.floor(validTrades.length * 0.7);
+  const trainTrades = validTrades.slice(0, splitIndex);
+  const testTrades = validTrades.slice(splitIndex);
+
+  /* ---------- rule generation (TRAIN ONLY) ---------- */
 
   const rules = useMemo(() => {
     const map = new Map<string, Map<Session, { sum: number; count: number }>>();
 
-    for (const t of validTrades) {
+    for (const t of trainTrades) {
       const s = getSession(t.date);
       if (!s) continue;
 
@@ -66,6 +70,7 @@ export default function DashboardPage() {
     }
 
     const out: Rule[] = [];
+
     for (const [strat, row] of map.entries()) {
       for (const [session, cell] of row.entries()) {
         if (cell.count >= minTrades && cell.sum / cell.count < 0) {
@@ -73,69 +78,42 @@ export default function DashboardPage() {
         }
       }
     }
-    return out;
-  }, [validTrades, minTrades]);
 
-  /* ---------- filter helper ---------- */
+    return out;
+  }, [trainTrades, minTrades]);
+
+  /* ---------- apply rules ---------- */
 
   function applyRules(trades: typeof validTrades, active: Rule[]) {
     return trades.filter(t => {
       const s = getSession(t.date);
       if (!s) return true;
-      return !active.some(r => r.strategy === t.strategy && r.session === s);
+      return !active.some(
+        r => r.strategy === t.strategy && r.session === s
+      );
     });
   }
 
-  const baseAvg = avgR(validTrades);
+  /* ---------- metrics ---------- */
 
-  /* ---------- RULE OPTIMIZER ---------- */
+  const trainBase = avgR(trainTrades);
+  const trainFiltered = avgR(applyRules(trainTrades, rules));
 
-  const optimized = useMemo(() => {
-    if (rules.length === 0) return null;
-
-    // Limit to top 5 rules first (avoid combinatorial explosion)
-    const candidates = rules.slice(0, 5);
-
-    let bestAvg = baseAvg;
-    let bestSet: Rule[] = [];
-
-    function testCombination(combo: Rule[]) {
-      const filtered = applyRules(validTrades, combo);
-      const value = avgR(filtered);
-
-      if (value > bestAvg) {
-        bestAvg = value;
-        bestSet = combo;
-      }
-    }
-
-    function generateCombos(arr: Rule[], start = 0, current: Rule[] = []) {
-      if (current.length > 0) testCombination(current);
-
-      for (let i = start; i < arr.length; i++) {
-        generateCombos(arr, i + 1, [...current, arr[i]]);
-      }
-    }
-
-    generateCombos(candidates);
-
-    return {
-      bestAvg,
-      delta: bestAvg - baseAvg,
-      rules: bestSet,
-    };
-  }, [rules, validTrades, baseAvg]);
+  const testBase = avgR(testTrades);
+  const testFiltered = avgR(applyRules(testTrades, rules));
 
   /* ---------- UI ---------- */
 
   return (
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-4xl">
 
-      <h1 className="text-3xl font-bold mb-6">Rule Optimizer</h1>
+      <h1 className="text-3xl font-bold mb-6">
+        Walk‑Forward Validation
+      </h1>
 
-      {/* Controls */}
+      {/* Control */}
       <div className="bg-white border rounded p-4 mb-6">
-        <label>Min trades: {minTrades}</label>
+        <label>Minimum trades: {minTrades}</label>
         <input
           type="range"
           min={1}
@@ -146,42 +124,46 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Base performance */}
+      {/* Train */}
       <div className="bg-white border rounded p-4 mb-6">
-        <div>Base Avg R: {baseAvg.toFixed(2)}</div>
+        <h2 className="font-semibold mb-2">Train Performance (In-Sample)</h2>
+        <div>Base Avg R: {trainBase.toFixed(2)}</div>
+        <div>Filtered Avg R: {trainFiltered.toFixed(2)}</div>
+        <div className="text-sm">
+          Δ: {(trainFiltered - trainBase).toFixed(2)}
+        </div>
       </div>
 
-      {/* ✅ Optimizer result */}
+      {/* Test */}
+      <div className="bg-white border rounded p-4 mb-6">
+        <h2 className="font-semibold mb-2">Test Performance (Out-of-Sample)</h2>
+        <div>Base Avg R: {testBase.toFixed(2)}</div>
+        <div>Filtered Avg R: {testFiltered.toFixed(2)}</div>
+        <div
+          className={
+            testFiltered >= testBase
+              ? "text-green-700"
+              : "text-red-700"
+          }
+        >
+          Δ: {(testFiltered - testBase).toFixed(2)}
+        </div>
+      </div>
+
+      {/* Rules */}
       <div className="bg-white border rounded p-4">
+        <h2 className="font-semibold mb-2">Generated Rules</h2>
 
-        <h2 className="font-semibold mb-3">Best Rule Combination</h2>
-
-        {optimized === null ? (
-          <p>No rules available.</p>
+        {rules.length === 0 ? (
+          <p>No rules generated.</p>
         ) : (
-          <>
-            <div className="mb-2">
-              Optimized Avg R: {optimized.bestAvg.toFixed(2)}
-            </div>
-
-            <div
-              className={
-                optimized.delta >= 0
-                  ? "text-green-700"
-                  : "text-red-700"
-              }
-            >
-              Improvement: {optimized.delta.toFixed(2)}
-            </div>
-
-            <ul className="mt-3 text-sm space-y-1">
-              {optimized.rules.map((r, i) => (
-                <li key={i}>
-                  Disable {r.strategy} @ {r.session}
-                </li>
-              ))}
-            </ul>
-          </>
+          <ul className="text-sm space-y-1">
+            {rules.map((r, i) => (
+              <li key={i}>
+                Disable {r.strategy} @ {r.session}
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
