@@ -12,7 +12,7 @@ function avgR(trades: { profit: number; risk: number }[]) {
 
 function equity(trades: { profit: number }[]) {
   let e = 0;
-  return trades.map((t) => (e += t.profit));
+  return trades.map(t => (e += t.profit));
 }
 
 function maxDD(curve: number[]) {
@@ -25,9 +25,24 @@ function maxDD(curve: number[]) {
   return max;
 }
 
-function winRate(trades: { profit: number }[]) {
-  if (!trades.length) return 0;
-  return trades.filter(t => t.profit > 0).length / trades.length;
+/* ---------- discipline score ---------- */
+
+function computeScore(trades: any[]) {
+  const total = trades.length;
+  if (!total) return 0;
+
+  const F = trades.filter(t => t.grade === "F");
+
+  const fRate = F.length / total;
+
+  const absTotal = trades.reduce((s, t) => s + Math.abs(t.profit), 0);
+  const absF = F.reduce((s, t) => s + Math.abs(t.profit), 0);
+
+  const taxRatio = absTotal > 0 ? absF / absTotal : 0;
+
+  let score = 100 - (70 * fRate + 30 * taxRatio);
+
+  return Math.max(0, Math.min(100, score));
 }
 
 /* ---------- page ---------- */
@@ -40,10 +55,11 @@ export default function DashboardPage() {
     [trades]
   );
 
-  /* ---------- system state ---------- */
+  /* ---------- system ---------- */
 
   const avg = avgR(validTrades);
   const recent = avgR(validTrades.slice(-20));
+
   const curve = equity(validTrades);
   const dd = maxDD(curve);
 
@@ -67,35 +83,41 @@ export default function DashboardPage() {
     const strat = t.strategy || "";
 
     if (regime === "DANGER" || !allowedStrategies.includes(strat)) {
-      return { grade: "F", reason: "Rule violation / wrong regime" };
+      return "F";
     }
 
     if (regime === "CHOPPY") {
-      return { grade: "B", reason: "Allowed but not ideal" };
+      return "B";
     }
 
-    return { grade: "A", reason: "Optimal trade" };
+    return "A";
   }
 
-  const graded = validTrades.map(t => {
-    const g = gradeTrade(t);
-    return { ...t, grade: g.grade, reason: g.reason };
-  });
+  const graded = validTrades.map(t => ({
+    ...t,
+    grade: gradeTrade(t),
+  }));
 
-  /* ---------- discipline score ---------- */
+  /* ---------- current score ---------- */
 
-  const total = graded.length;
-  const F = graded.filter(t => t.grade === "F");
+  const score = computeScore(graded);
 
-  const fRate = total > 0 ? F.length / total : 0;
+  /* ✅ rolling discipline trend */
 
-  const absTotal = graded.reduce((s, t) => s + Math.abs(t.profit), 0);
-  const absF = F.reduce((s, t) => s + Math.abs(t.profit), 0);
+  const chunkSize = 10; // trades per segment
 
-  const taxRatio = absTotal > 0 ? absF / absTotal : 0;
+  const trend = useMemo(() => {
+    const chunks = [];
 
-  let score = 100 - (70 * fRate + 30 * taxRatio);
-  score = Math.max(0, Math.min(100, score));
+    for (let i = 0; i < graded.length; i += chunkSize) {
+      const slice = graded.slice(i, i + chunkSize);
+      if (slice.length > 0) {
+        chunks.push(computeScore(slice));
+      }
+    }
+
+    return chunks;
+  }, [graded]);
 
   /* ---------- UI ---------- */
 
@@ -103,62 +125,66 @@ export default function DashboardPage() {
     <main className="min-h-screen bg-gray-50 p-8 text-gray-900 max-w-6xl">
 
       <h1 className="text-3xl font-bold mb-6">
-        🧭 Discipline Score
+        📊 Discipline Evolution
       </h1>
 
-      {/* System */}
+      {/* Current score */}
       <div className="bg-white border p-4 rounded mb-6">
-        <h2 className="font-semibold mb-2">System</h2>
-        <div>Regime: {regime}</div>
-        <div>Avg R: {avg.toFixed(2)}</div>
-        <div>Drawdown: {(dd * 100).toFixed(1)}%</div>
-      </div>
-
-      {/* Score */}
-      <div className="bg-white border p-4 rounded mb-6">
-        <h2 className="font-semibold mb-2">Discipline Score</h2>
-
+        <h2 className="font-semibold mb-2">Current Score</h2>
         <div className="text-2xl font-bold">
           {score.toFixed(0)} / 100
         </div>
-
-        <div className="text-sm text-gray-600 mt-2">
-          F-rate: {(fRate * 100).toFixed(1)}% | Discipline tax: {(taxRatio * 100).toFixed(1)}%
-        </div>
       </div>
 
-      {/* Trades */}
+      {/* Trend */}
+      <div className="bg-white border p-4 rounded mb-6">
+
+        <h2 className="font-semibold mb-3">
+          Discipline Trend (by Trade Groups)
+        </h2>
+
+        {trend.length === 0 ? (
+          <p>No data yet</p>
+        ) : (
+          <div className="space-y-2">
+            {trend.map((s, i) => (
+              <div
+                key={i}
+                className="flex justify-between text-sm border-b py-1"
+              >
+                <span>Segment {i + 1}</span>
+                <span
+                  className={
+                    s >= 80
+                      ? "text-green-700"
+                      : s >= 60
+                      ? "text-yellow-600"
+                      : "text-red-700"
+                  }
+                >
+                  {s.toFixed(0)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+      </div>
+
+      {/* Interpretation */}
       <div className="bg-white border p-4 rounded">
 
-        <h2 className="font-semibold mb-3">Trades</h2>
+        <h2 className="font-semibold mb-2">How to Read It</h2>
 
-        {graded.length === 0 ? (
-          <p>No trades</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left">Strategy</th>
-                <th>Profit</th>
-                <th>Grade</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {graded.map((t, i) => (
-                <tr key={i} className="border-b">
-                  <td>{t.strategy}</td>
-                  <td>{t.profit.toFixed(2)}</td>
-                  <td>{t.grade}</td>
-                  <td>{t.reason}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <div className="text-sm space-y-1">
+          <div>✅ Rising scores → improving discipline</div>
+          <div>⚠️ Flat → stagnation</div>
+          <div>❌ Falling → losing control / overtrading</div>
+        </div>
 
       </div>
 
     </main>
   );
 }
+``
