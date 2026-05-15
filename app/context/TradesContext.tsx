@@ -22,6 +22,7 @@ export type Trade = {
 type TradesContextType = {
   trades: Trade[];
   addTrade: (trade: Trade) => void;
+  clearTrades: () => void; // ✅ added
 };
 
 const TradesContext = createContext<TradesContextType | undefined>(undefined);
@@ -35,8 +36,13 @@ export function TradesProvider({ children }: { children: React.ReactNode }) {
     setTrades((prev) => [...prev, trade]);
   }
 
+  /* ✅ clear function */
+  function clearTrades() {
+    setTrades([]);
+  }
+
   return (
-    <TradesContext.Provider value={{ trades, addTrade }}>
+    <TradesContext.Provider value={{ trades, addTrade, clearTrades }}>
       {children}
     </TradesContext.Provider>
   );
