@@ -8,32 +8,23 @@ import {
 } from "react";
 
 export type Trade = {
-  id: string | number;
+  id: number | string;
   date: string;
   symbol: string;
-
   side: string;
-
   quantity: number;
-
   entry: number;
   exit: number;
-
-  strategy?: string;
-
+  strategy: string;
   profit: number;
-  risk?: number;
-
-  broker?: string;
-  account?: string;
+  risk: number;
 };
 
 type TradesContextType = {
   trades: Trade[];
   addTrade: (trade: Trade) => void;
-  addTrades: (trades: Trade[]) => void;
-  updateTrades: (trades: Trade[]) => void;
   clearTrades: () => void;
+  setTrades: (trades: Trade[]) => void;
 };
 
 const TradesContext =
@@ -46,17 +37,20 @@ export function TradesProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [trades, setTrades] = useState<Trade[]>([]);
+  const [trades, setTradesState] = useState<
+    Trade[]
+  >([]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("trades");
+    const saved =
+      localStorage.getItem("trades");
 
-      if (stored) {
-        setTrades(JSON.parse(stored));
+    if (saved) {
+      try {
+        setTradesState(JSON.parse(saved));
+      } catch (err) {
+        console.error(err);
       }
-    } catch (err) {
-      console.error(err);
     }
   }, []);
 
@@ -68,20 +62,19 @@ export function TradesProvider({
   }, [trades]);
 
   function addTrade(trade: Trade) {
-    setTrades((prev) => [...prev, trade]);
-  }
-
-  function addTrades(newTrades: Trade[]) {
-    setTrades((prev) => [...prev, ...newTrades]);
-  }
-
-  function updateTrades(newTrades: Trade[]) {
-    setTrades(newTrades);
+    setTradesState((prev) => [
+      ...prev,
+      trade,
+    ]);
   }
 
   function clearTrades() {
-    setTrades([]);
+    setTradesState([]);
     localStorage.removeItem("trades");
+  }
+
+  function setTrades(newTrades: Trade[]) {
+    setTradesState(newTrades);
   }
 
   return (
@@ -89,9 +82,8 @@ export function TradesProvider({
       value={{
         trades,
         addTrade,
-        addTrades,
-        updateTrades,
         clearTrades,
+        setTrades,
       }}
     >
       {children}
@@ -100,7 +92,8 @@ export function TradesProvider({
 }
 
 export function useTrades() {
-  const context = useContext(TradesContext);
+  const context =
+    useContext(TradesContext);
 
   if (!context) {
     throw new Error(
