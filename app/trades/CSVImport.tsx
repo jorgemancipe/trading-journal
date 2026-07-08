@@ -4,13 +4,53 @@ import { useState } from "react";
 
 type BrokerType = "DAS" | "IBKR" | "Thinkorswim";
 
+type Execution = {
+  id: string;
+  date: string;
+  symbol: string;
+  side: "Buy" | "Sell";
+  quantity: number;
+  price: number;
+  broker: BrokerType;
+  account: string;
+  route?: string;
+  commission?: number;
+  fees?: number;
+};
+
+type BuiltTrade = {
+  id: string;
+  date: string;
+  entryDate: string;
+  exitDate: string;
+  symbol: string;
+  side: "Buy" | "Sell";
+  direction: "Long" | "Short";
+  quantity: number;
+  entry: number;
+  exit: number;
+  profit: number;
+  grossProfit: number;
+  commission: number;
+  fees: number;
+  ecnFees: number;
+  risk: number;
+  strategy: string;
+  broker: BrokerType;
+  account: string;
+  route: string;
+  source: string;
+  open?: boolean;
+};
+
 export default function CSVImport() {
   const [fileName, setFileName] = useState("");
   const [brokerType, setBrokerType] = useState<BrokerType>("DAS");
   const [tradingDate, setTradingDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
-  const [previewTrades, setPreviewTrades] = useState<any[]>([]);
+  const [previewTrades, setPreviewTrades] = useState<BuiltTrade[]>([]);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
 
   function n(v: any) {
     const raw = String(v || "").trim();
@@ -73,7 +113,13 @@ export default function CSVImport() {
   function parseDate(raw: any) {
     if (!raw) return null;
 
-    const d = new Date(String(raw).trim());
+    const value = String(raw).trim();
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
+      return value.slice(0, 19);
+    }
+
+    const d = new Date(value);
 
     if (isNaN(d.getTime())) return null;
 
@@ -89,13 +135,16 @@ export default function CSVImport() {
 
   function getValue(obj: any, keys: string[]) {
     for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== "") return obj[key];
+      if (obj[key] !== undefined && obj[key] !== "") {
+        return obj[key];
+      }
     }
+
     return "";
   }
 
-  function normalizeSide(side: any) {
-    const s = String(side || "").trim().toUpperCase();
+  function normalizeSide(value: any): "Buy" | "Sell" | "UNKNOWN" {
+    const s = String(value || "").trim().toUpperCase();
 
     if (s === "B" || s === "BUY" || s === "BOT") return "Buy";
     if (s === "S" || s === "SELL" || s === "SLD") return "Sell";
@@ -105,21 +154,7 @@ export default function CSVImport() {
     return "UNKNOWN";
   }
 
-  function tradeKey(t: any) {
-    return [
-      t.broker,
-      t.account,
-      t.date,
-      t.symbol,
-      t.side,
-      t.quantity,
-      t.entry,
-      t.exit,
-      t.profit,
-    ].join("|");
-  }
-
-  function parseExecutions(text: string) {
+  function parseExecutions(text: string): Execution[] {
     const separator = detectSeparator(text);
 
     const lines = text
@@ -131,223 +166,239 @@ export default function CSVImport() {
 
     const headers = parseCSVLine(lines[0], separator).map(normalizeHeader);
 
-    const executions = lines
-      .slice(1)
-      .map((line) => {
-        const values = parseCSVLine(line, separator);
-        const obj: any = {};
+    const executions: Execution[] = [];
 
-        headers.forEach((h, i) => {
-          obj[h] = values[i]?.trim() || "";
+    for (const line of lines.slice(1)) {
+      const values = parseCSVLine(line, separator);
+      const obj: any = {};
+
+      headers.forEach((h, i) => {
+        obj[h] = values[i]?.trim() || "";
+      });
+
+      if (brokerType === "DAS") {
+        const side = normalizeSide(getValue(obj, ["Side", "SIDE"]));
+
+        if (side === "UNKNOWN") continue;
+
+        executions.push({
+          id: crypto.randomUUID(),
+          date: buildLocalDateTime(tradingDate, getValue(obj, ["Time", "TIME"])),
+          symbol: getValue(obj, ["Symbol", "SYMBOL"]).toUpperCase() || "UNKNOWN",
+          side,
+          quantity: n(getValue(obj, ["Qty", "Quantity", "Shares"])),
+          price: n(getValue(obj, ["Price", "Avg Price"])),
+          broker: "DAS",
+          account: getValue(obj, ["Account", "Acct"]) || "DEFAULT",
+          route: getValue(obj, ["Route"]) || "",
+          commission: 0,
+          fees: 0,
         });
+      } else {
+        const side = normalizeSide(getValue(obj, ["Side", "Action", "Buy/Sell"]));
 
-        if (brokerType === "DAS") {
-          return {
-            id: crypto.randomUUID(),
-            date: buildLocalDateTime(
-              tradingDate,
-              getValue(obj, ["Time", "TIME"])
-            ),
-            symbol: getValue(obj, ["Symbol", "SYMBOL"]) || "UNKNOWN",
-            side: normalizeSide(getValue(obj, ["Side", "SIDE"])),
-            quantity: n(getValue(obj, ["Qty", "Quantity", "Shares"])),
-            price: n(getValue(obj, ["Price", "Avg Price"])),
-            broker: "DAS",
-            account: getValue(obj, ["Account", "Acct"]) || "DEFAULT",
-            route: getValue(obj, ["Route"]) || "",
-          };
-        }
+        if (side === "UNKNOWN") continue;
 
         const rawDate = getValue(obj, [
           "Date/Time",
           "Date Time",
-          "Date",
           "Trade Date",
           "Execution Time",
+          "Date",
           "Time",
         ]);
 
-        return {
+        executions.push({
           id: crypto.randomUUID(),
-          date: parseDate(rawDate) || buildLocalDateTime(tradingDate, "00:00:00"),
+          date:
+            parseDate(rawDate) ||
+            buildLocalDateTime(tradingDate, "00:00:00"),
           symbol:
-            getValue(obj, ["Symbol", "Ticker", "Underlying", "Instrument"]) ||
-            "UNKNOWN",
-          side: normalizeSide(getValue(obj, ["Side", "Action", "Buy/Sell"])),
+            getValue(obj, ["Symbol", "Ticker", "Underlying", "Instrument"])
+              .toUpperCase() || "UNKNOWN",
+          side,
           quantity: n(getValue(obj, ["Qty", "Quantity", "Shares"])),
-          price: n(getValue(obj, ["Entry", "Price", "Avg Price"])),
+          price: n(getValue(obj, ["Price", "Avg Price", "Entry"])),
           broker: brokerType,
-          account: getValue(obj, ["Account", "Acct", "Account Number"]) || "DEFAULT",
+          account:
+            getValue(obj, ["Account", "Acct", "Account Number"]) || "DEFAULT",
           route: getValue(obj, ["Route"]) || "",
-          fees: n(getValue(obj, ["Fees", "Fee"])),
           commission: n(getValue(obj, ["Commission", "Commissions"])),
-          ecnFees: n(getValue(obj, ["ECN", "ECN Fees"])),
-        };
-      })
-      .filter(
-        (e) =>
-          e.symbol !== "UNKNOWN" &&
-          e.side !== "UNKNOWN" &&
-          e.quantity > 0 &&
-          e.price > 0
-      );
-
-    return executions;
-  }
-
-  function buildTradesFromExecutions(executions: any[]) {
-    const sorted = [...executions].sort((a, b) => {
-      return new Date(a.date).getTime() - new Date(b.date).getTime();
-    });
-
-    const groups: Record<string, any[]> = {};
-
-    for (const e of sorted) {
-      const key = `${e.account}|${e.symbol}|${e.date.slice(0, 10)}`;
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(e);
+          fees: n(getValue(obj, ["Fees", "Fee", "ECN", "ECN Fees"])),
+        });
+      }
     }
 
-    const completedTrades: any[] = [];
+    return executions.filter(
+      (e) =>
+        e.symbol !== "UNKNOWN" &&
+        e.quantity > 0 &&
+        e.price > 0
+    );
+  }
+
+  function buildTradesFromExecutions(executions: Execution[]) {
+    const sorted = [...executions].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    const groups: Record<string, Execution[]> = {};
+
+    sorted.forEach((e) => {
+      const day = e.date.slice(0, 10);
+      const key = `${e.account}|${e.symbol}|${day}`;
+
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(e);
+    });
+
+    const builtTrades: BuiltTrade[] = [];
+    const warnings: string[] = [];
 
     Object.values(groups).forEach((rows) => {
       let position = 0;
-      let avgPrice = 0;
+      let avgEntry = 0;
       let openQty = 0;
-      let side: "Long" | "Short" | null = null;
-      let entryDate = "";
-      let exitDate = "";
       let totalEntryValue = 0;
       let totalExitValue = 0;
-      let totalQtyTraded = 0;
       let realizedPnL = 0;
-      let account = "";
+      let commissions = 0;
+      let fees = 0;
+
+      let entryDate = "";
+      let exitDate = "";
       let symbol = "";
-      let broker = "";
+      let account = "";
+      let broker: BrokerType = brokerType;
       let route = "";
+      let direction: "Long" | "Short" | null = null;
 
       function resetTrade() {
         position = 0;
-        avgPrice = 0;
+        avgEntry = 0;
         openQty = 0;
-        side = null;
-        entryDate = "";
-        exitDate = "";
         totalEntryValue = 0;
         totalExitValue = 0;
-        totalQtyTraded = 0;
         realizedPnL = 0;
-        account = "";
+        commissions = 0;
+        fees = 0;
+        entryDate = "";
+        exitDate = "";
         symbol = "";
-        broker = "";
+        account = "";
+        broker = brokerType;
         route = "";
+        direction = null;
       }
 
-      function saveCompletedTrade() {
-        if (!side || openQty <= 0) return;
+      function saveTrade(open = false) {
+        if (!direction || openQty <= 0 || !symbol) return;
 
-        completedTrades.push({
+        const entry = totalEntryValue / openQty;
+        const exit = open ? 0 : totalExitValue / openQty;
+
+        builtTrades.push({
           id: crypto.randomUUID(),
           date: entryDate,
           entryDate,
-          exitDate,
+          exitDate: open ? "" : exitDate,
           symbol,
-          side,
+          side: direction === "Long" ? "Buy" : "Sell",
+          direction,
           quantity: openQty,
-          entry: totalEntryValue / openQty,
-          exit: totalExitValue / openQty,
-          profit: realizedPnL,
-          grossProfit: realizedPnL,
-          fees: 0,
-          commission: 0,
+          entry,
+          exit,
+          profit: Number((realizedPnL - commissions - fees).toFixed(2)),
+          grossProfit: Number(realizedPnL.toFixed(2)),
+          commission: Number(commissions.toFixed(2)),
+          fees: Number(fees.toFixed(2)),
           ecnFees: 0,
+          risk: 0,
+          strategy: "IMPORT",
           broker,
           account,
           route,
-          strategy: "IMPORT",
-          source: "BUILT_FROM_EXECUTIONS",
+          source: open
+            ? "OPEN_POSITION_FROM_EXECUTIONS"
+            : "BUILT_FROM_EXECUTIONS",
+          open,
         });
       }
 
       resetTrade();
 
       for (const e of rows) {
-        const signedQty = e.side === "Buy" ? e.quantity : -e.quantity;
+        commissions += e.commission || 0;
+        fees += e.fees || 0;
 
-        account = e.account;
         symbol = e.symbol;
+        account = e.account;
         broker = e.broker;
         route = e.route || route;
 
+        const signedQty = e.side === "Buy" ? e.quantity : -e.quantity;
+
         if (position === 0) {
           position = signedQty;
-          side = position > 0 ? "Long" : "Short";
-          avgPrice = e.price;
+          direction = position > 0 ? "Long" : "Short";
+          avgEntry = e.price;
           openQty = Math.abs(signedQty);
-          totalQtyTraded = e.quantity;
-          totalEntryValue = e.quantity * e.price;
+          totalEntryValue = Math.abs(signedQty) * e.price;
           entryDate = e.date;
           continue;
         }
 
         const sameDirection =
-          (position > 0 && signedQty > 0) || (position < 0 && signedQty < 0);
+          (position > 0 && signedQty > 0) ||
+          (position < 0 && signedQty < 0);
 
         if (sameDirection) {
           const oldAbs = Math.abs(position);
-          const newAbs = oldAbs + Math.abs(signedQty);
+          const addAbs = Math.abs(signedQty);
+          const newAbs = oldAbs + addAbs;
 
-          avgPrice =
-            (avgPrice * oldAbs + e.price * Math.abs(signedQty)) / newAbs;
+          avgEntry =
+            (avgEntry * oldAbs + e.price * addAbs) / newAbs;
 
           position += signedQty;
-          openQty += Math.abs(signedQty);
-          totalQtyTraded += Math.abs(signedQty);
-          totalEntryValue += Math.abs(signedQty) * e.price;
+          openQty += addAbs;
+          totalEntryValue += addAbs * e.price;
           continue;
         }
 
         let remainingQty = Math.abs(signedQty);
+        const incomingDirection = signedQty > 0 ? 1 : -1;
 
         while (remainingQty > 0) {
           const positionAbs = Math.abs(position);
           const closeQty = Math.min(positionAbs, remainingQty);
 
           if (position > 0) {
-            realizedPnL += (e.price - avgPrice) * closeQty;
+            realizedPnL += (e.price - avgEntry) * closeQty;
           } else {
-            realizedPnL += (avgPrice - e.price) * closeQty;
+            realizedPnL += (avgEntry - e.price) * closeQty;
           }
 
           totalExitValue += closeQty * e.price;
-          totalQtyTraded += closeQty;
           exitDate = e.date;
 
-          if (position > 0) {
-            position -= closeQty;
-          } else {
-            position += closeQty;
-          }
-
+          position += position > 0 ? -closeQty : closeQty;
           remainingQty -= closeQty;
 
           if (position === 0) {
-            saveCompletedTrade();
-
-            const leftoverDirection = signedQty > 0 ? 1 : -1;
+            saveTrade(false);
 
             resetTrade();
 
             if (remainingQty > 0) {
-              position = remainingQty * leftoverDirection;
-              side = position > 0 ? "Long" : "Short";
-              avgPrice = e.price;
+              position = remainingQty * incomingDirection;
+              direction = position > 0 ? "Long" : "Short";
+              avgEntry = e.price;
               openQty = remainingQty;
-              totalQtyTraded = remainingQty;
               totalEntryValue = remainingQty * e.price;
               entryDate = e.date;
-              account = e.account;
               symbol = e.symbol;
+              account = e.account;
               broker = e.broker;
               route = e.route || "";
               remainingQty = 0;
@@ -356,33 +407,33 @@ export default function CSVImport() {
         }
       }
 
-      if (position !== 0 && side) {
-        completedTrades.push({
-          id: crypto.randomUUID(),
-          date: entryDate,
-          entryDate,
-          exitDate: "",
-          symbol,
-          side,
-          quantity: openQty,
-          entry: totalEntryValue / openQty,
-          exit: 0,
-          profit: realizedPnL,
-          grossProfit: realizedPnL,
-          fees: 0,
-          commission: 0,
-          ecnFees: 0,
-          broker,
-          account,
-          route,
-          strategy: "IMPORT",
-          source: "OPEN_POSITION_FROM_EXECUTIONS",
-          open: true,
-        });
+      if (position !== 0 && direction) {
+        saveTrade(true);
+        warnings.push(
+          `${symbol} has an open ${direction} position of ${Math.abs(
+            position
+          )} share(s).`
+        );
       }
     });
 
-    return completedTrades;
+    setImportWarnings(warnings);
+
+    return builtTrades;
+  }
+
+  function tradeKey(t: BuiltTrade) {
+    return [
+      t.broker,
+      t.account,
+      t.date,
+      t.symbol,
+      t.side,
+      t.quantity,
+      Number(t.entry).toFixed(4),
+      Number(t.exit).toFixed(4),
+      Number(t.profit).toFixed(2),
+    ].join("|");
   }
 
   function parseTrades(text: string) {
@@ -395,8 +446,6 @@ export default function CSVImport() {
 
     const text = await file.text();
     const parsed = parseTrades(text);
-
-    console.log("BUILT TRADES", parsed);
 
     setPreviewTrades(parsed);
   }
@@ -420,6 +469,11 @@ export default function CSVImport() {
 
     location.reload();
   }
+
+  const totalPnL = previewTrades.reduce(
+    (sum, t) => sum + Number(t.profit || 0),
+    0
+  );
 
   return (
     <div className="bg-slate-900 border border-slate-800 text-white p-6 rounded-xl">
@@ -463,23 +517,47 @@ export default function CSVImport() {
           className="w-full bg-slate-800 border border-slate-700 rounded p-3"
         />
 
-        {fileName && <div className="text-sm text-gray-400">{fileName}</div>}
+        {fileName && (
+          <div className="text-sm text-gray-400">{fileName}</div>
+        )}
 
         {previewTrades.length > 0 && (
-          <div className="bg-slate-800 rounded-lg p-4">
-            <div className="font-bold mb-2">Import Preview</div>
+          <div className="bg-slate-800 rounded-lg p-4 space-y-2">
+            <div className="font-bold">Import Preview</div>
 
             <div>Built Trades: {previewTrades.length}</div>
 
-            <div className="text-xs text-gray-400 mt-2">
+            <div>
+              Preview P/L:{" "}
+              <span
+                className={
+                  totalPnL >= 0 ? "text-green-400" : "text-red-400"
+                }
+              >
+                {totalPnL.toFixed(2)}
+              </span>
+            </div>
+
+            <div className="text-xs text-gray-400">
               First Trade: {previewTrades[0]?.date}
             </div>
 
-            <div className="text-xs text-gray-400 mt-1">
-              {previewTrades[0]?.symbol} | {previewTrades[0]?.side} | Qty:{" "}
-              {previewTrades[0]?.quantity} | P/L:{" "}
+            <div className="text-xs text-gray-400">
+              {previewTrades[0]?.symbol} | {previewTrades[0]?.direction} | Qty:{" "}
+              {previewTrades[0]?.quantity} | Entry:{" "}
+              {previewTrades[0]?.entry?.toFixed?.(4)} | Exit:{" "}
+              {previewTrades[0]?.exit?.toFixed?.(4)} | P/L:{" "}
               {previewTrades[0]?.profit?.toFixed?.(2)}
             </div>
+
+            {importWarnings.length > 0 && (
+              <div className="bg-yellow-500 text-black p-3 rounded text-sm">
+                <div className="font-bold">Warnings</div>
+                {importWarnings.map((w, i) => (
+                  <div key={i}>{w}</div>
+                ))}
+              </div>
+            )}
 
             <div className="flex gap-3 mt-4">
               <button
