@@ -1,69 +1,112 @@
 "use client";
 
-import { createContext, useContext, useState } from // e.g. "2026-05-15" or ISO stringimport { createContext, useContext, useState } from "react";
-  symbol: string;              // e.g. "AAPL"
-  strategy: string;            // e.g. "ORB"
-  side: "Buy" | "Sell";        // ✅ FIX: add side
-  quantity: number;            // ✅ FIX: add quantity
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+
+export type Trade = {
+  id: string | number;
+  date: string;
+  symbol: string;
+
+  side: string;
+
+  quantity: number;
+
   entry: number;
   exit: number;
-  profit: number;
-  risk: number;                // manual $ risk (your chosen model)
-};
 
-/* ---------- context ---------- */
+  strategy?: string;
+
+  profit: number;
+  risk?: number;
+
+  broker?: string;
+  account?: string;
+};
 
 type TradesContextType = {
   trades: Trade[];
   addTrade: (trade: Trade) => void;
+  addTrades: (trades: Trade[]) => void;
+  updateTrades: (trades: Trade[]) => void;
   clearTrades: () => void;
 };
 
-const TradesContext = createContext<TradesContextType | undefined>(undefined);
+const TradesContext =
+  createContext<TradesContextType | undefined>(
+    undefined
+  );
 
-/* ---------- provider ---------- */
-
-export function TradesProvider({ children }: { children: React.ReactNode }) {
+export function TradesProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [trades, setTrades] = useState<Trade[]>([]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("trades");
+
+      if (stored) {
+        setTrades(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "trades",
+      JSON.stringify(trades)
+    );
+  }, [trades]);
 
   function addTrade(trade: Trade) {
     setTrades((prev) => [...prev, trade]);
   }
 
+  function addTrades(newTrades: Trade[]) {
+    setTrades((prev) => [...prev, ...newTrades]);
+  }
+
+  function updateTrades(newTrades: Trade[]) {
+    setTrades(newTrades);
+  }
+
   function clearTrades() {
     setTrades([]);
+    localStorage.removeItem("trades");
   }
 
   return (
-    <TradesContext.Provider value={{ trades, addTrade, clearTrades }}>
+    <TradesContext.Provider
+      value={{
+        trades,
+        addTrade,
+        addTrades,
+        updateTrades,
+        clearTrades,
+      }}
+    >
       {children}
     </TradesContext.Provider>
   );
 }
 
-/* ---------- hook ---------- */
-
 export function useTrades() {
   const context = useContext(TradesContext);
+
   if (!context) {
-    throw new Error("useTrades must be used inside TradesProvider");
+    throw new Error(
+      "useTrades must be used inside TradesProvider"
+    );
   }
+
   return context;
 }
-
-
-/* ---------- types ---------- */
-
-export type Trade = {
-  id: number;
-  date: string;
-  symbol: string;
-  strategy: string;
-  side: "Buy" | "Sell";   // ✅ MUST exist
-  quantity: number;       // ✅ MUST exist
-  entry: number;
-  exit: number;
-  profit: number;
-  risk: number;
-};
-``

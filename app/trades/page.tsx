@@ -1,19 +1,44 @@
 "use client";
 
-import TradeForm from "./TradeForm";
+import CSVImport from "./CSVImport";
+import RiskPanel from "./RiskPanel";
+import Dashboard from "./Dashboard";
+import DailyScoreChart from "./DailyScoreChart";
+import CalendarHeatmap from "./CalendarHeatmap";
+import TradeCountByDate from "./TradeCountByDate";
+import SessionAnalysis from "./SessionAnalysis";
+import MonthlyAnalysis from "./MonthlyAnalysis";
+import EquityChart from "./EquityChart";
+import TradeHistory from "./TradeHistory";
 
 export default function TradesPage() {
   return (
-    <main className="p-8 max-w-4xl">
+    <div className="p-6 space-y-6 bg-slate-950 min-h-screen">
 
-      <h1 className="text-3xl font-bold mb-6">
-        Trades
+      <h1 className="text-3xl font-bold text-white">
+        Trading Journal
       </h1>
 
-      {/* ✅ Your upgraded form is now rendered here */}
-      <TradeForm />
+      <CSVImport />
 
-    </main>
+      <RiskPanel />
+
+      <Dashboard />
+
+      <DailyScoreChart />
+
+      <CalendarHeatmap />
+
+      <TradeCountByDate />
+
+      <SessionAnalysis />
+
+      <MonthlyAnalysis />
+
+      <EquityChart />
+
+      <TradeHistory />
+
+    </div>
   );
 }
-``
