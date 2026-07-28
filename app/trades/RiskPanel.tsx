@@ -7,7 +7,7 @@ export default function RiskPanel() {
   const { trades } = useTrades() as any;
 
   const [profitTarget, setProfitTarget] = useState(5000);
-  const [maxDD, setMaxDD] = useState(-2000);
+  const [maxDDLimit, setMaxDDLimit] = useState(-2000);
   const [dailyLimit, setDailyLimit] = useState(-1000);
 
   function n(v: any) {
@@ -15,98 +15,264 @@ export default function RiskPanel() {
     return Number.isFinite(x) ? x : 0;
   }
 
-  // ✅ Load settings
   useEffect(() => {
     const saved = localStorage.getItem("riskSettings");
+
     if (saved) {
       const s = JSON.parse(saved);
+
       setProfitTarget(s.profitTarget ?? 5000);
-      setMaxDD(s.maxDD ?? -2000);
+      setMaxDDLimit(s.maxDD ?? -2000);
       setDailyLimit(s.dailyLimit ?? -1000);
     }
   }, []);
 
-  // ✅ Save + trigger real-time update
   useEffect(() => {
-    const data = { profitTarget, maxDD, dailyLimit };
+    localStorage.setItem(
+      "riskSettings",
+      JSON.stringify({
+        profitTarget,
+        maxDD: maxDDLimit,
+        dailyLimit,
+      })
+    );
 
-    localStorage.setItem("riskSettings", JSON.stringify(data));
-
-    // 🔥 THIS FIXES YOUR PROBLEM
     window.dispatchEvent(new Event("riskUpdated"));
+  }, [profitTarget, maxDDLimit, dailyLimit]);
 
-  }, [profitTarget, maxDD, dailyLimit]);
-
-  // ✅ Stats
   const stats = useMemo(() => {
-    let balance = 0;
+    let netPnL = 0;
+    let grossWins = 0;
+    let grossLosses = 0;
+
+    let wins = 0;
+    let losses = 0;
+
+    let largestWinner = 0;
+    let largestLoser = 0;
+
+    let equity = 0;
+    let peak = 0;
+    let drawdown = 0;
+
+    let totalRisk = 0;
+    let totalR = 0;
+    let rTrades = 0;
+
+    let longTrades = 0;
+    let shortTrades = 0;
+
+    let longPnL = 0;
+    let shortPnL = 0;
+
     const daily: Record<string, number> = {};
 
     for (const t of trades || []) {
       const p = n(t.profit);
-      balance += p;
 
-      const day = new Date(t.date).toISOString().slice(0, 10);
-      daily[day] = (daily[day] || 0) + p;
+      netPnL += p;
+
+      equity += p;
+      peak = Math.max(peak, equity);
+      drawdown = Math.max(drawdown, peak - equity);
+
+      largestWinner = Math.max(largestWinner, p);
+      largestLoser = Math.min(largestLoser, p);
+
+      if (p > 0) {
+        wins++;
+        grossWins += p;
+      }
+
+      if (p < 0) {
+        losses++;
+        grossLosses += Math.abs(p);
+      }
+
+      const risk = n(t.risk);
+
+      if (risk > 0) {
+        totalRisk += risk;
+        totalR += p / risk;
+        rTrades++;
+      }
+
+      const side = String(
+        t.direction || t.side || ""
+      ).toLowerCase();
+
+      if (side.includes("long") || side.includes("buy")) {
+        longTrades++;
+        longPnL += p;
+      }
+
+      if (side.includes("short") || side.includes("sell")) {
+        shortTrades++;
+        shortPnL += p;
+      }
+
+      const day =
+        typeof t.date === "string"
+          ? t.date.slice(0, 10)
+          : "";
+
+      if (day) {
+        daily[day] = (daily[day] || 0) + p;
+      }
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const totalTrades = wins + losses;
+
+    const winRate =
+      totalTrades > 0
+        ? (wins / totalTrades) * 100
+        : 0;
+
+    const avgWinner =
+      wins > 0 ? grossWins / wins : 0;
+
+    const avgLoser =
+      losses > 0 ? grossLosses / losses : 0;
+
+    const profitFactor =
+      grossLosses > 0
+        ? grossWins / grossLosses
+        : 0;
+
+    const expectancy =
+      totalTrades > 0
+        ? netPnL / totalTrades
+        : 0;
+
+    const avgR =
+      rTrades > 0 ? totalR / rTrades : 0;
+
+    let greenDays = 0;
+    let redDays = 0;
+
+    Object.values(daily).forEach((v) => {
+      if (v >= 0) greenDays++;
+      else redDays++;
+    });
+
+    const today =
+      new Date().toISOString().slice(0, 10);
 
     return {
-      balance,
-      todayPnL: daily[today] || 0
+      netPnL,
+      totalTrades,
+      winRate,
+      avgWinner,
+      avgLoser,
+      profitFactor,
+      expectancy,
+      drawdown,
+      largestWinner,
+      largestLoser,
+      avgR,
+      greenDays,
+      redDays,
+      longTrades,
+      shortTrades,
+      longPnL,
+      shortPnL,
+      todayPnL: daily[today] || 0,
     };
   }, [trades]);
 
-  return (
-    <div className="bg-slate-900 text-white p-6 rounded-xl">
+  function Metric({
+    label,
+    value,
+  }: {
+    label: string;
+    value: string;
+  }) {
+    return (
+      <div className="bg-slate-800 p-4 rounded-xl">
+        <div className="text-xs text-gray-400">
+          {label}
+        </div>
 
-      <h2 className="text-xl font-bold mb-4">
-        Prop Risk System
+        <div className="text-xl font-bold">
+          {value}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-900 text-white p-6 rounded-xl space-y-6">
+
+      <h2 className="text-xl font-bold">
+        Professional Risk Analytics
       </h2>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         <div>
-          <label className="text-sm">Profit Target</label>
+          <label>Profit Target</label>
+
           <input
             type="number"
             value={profitTarget}
-            onChange={(e) => setProfitTarget(Number(e.target.value))}
+            onChange={(e) =>
+              setProfitTarget(Number(e.target.value))
+            }
             className="w-full bg-slate-800 p-2 rounded mt-1"
           />
         </div>
 
         <div>
-          <label className="text-sm">Max Drawdown</label>
+          <label>Max Drawdown Limit</label>
+
           <input
             type="number"
-            value={maxDD}
-            onChange={(e) => setMaxDD(Number(e.target.value))}
+            value={maxDDLimit}
+            onChange={(e) =>
+              setMaxDDLimit(Number(e.target.value))
+            }
             className="w-full bg-slate-800 p-2 rounded mt-1"
           />
         </div>
 
         <div>
-          <label className="text-sm">Daily Loss</label>
+          <label>Daily Loss Limit</label>
+
           <input
             type="number"
             value={dailyLimit}
-            onChange={(e) => setDailyLimit(Number(e.target.value))}
+            onChange={(e) =>
+              setDailyLimit(Number(e.target.value))
+            }
             className="w-full bg-slate-800 p-2 rounded mt-1"
           />
         </div>
 
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Metric label="Net P&L" value={stats.netPnL.toFixed(2)} />
+        <Metric label="Win Rate" value={`${stats.winRate.toFixed(1)}%`} />
+        <Metric label="Profit Factor" value={stats.profitFactor.toFixed(2)} />
+        <Metric label="Expectancy" value={stats.expectancy.toFixed(2)} />
+        <Metric label="Avg R" value={stats.avgR.toFixed(2)} />
+      </div>
 
-        <div>Balance: <b>{stats.balance.toFixed(2)}</b></div>
-        <div>Today: <b>{stats.todayPnL.toFixed(2)}</b></div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Metric label="Largest Winner" value={stats.largestWinner.toFixed(2)} />
+        <Metric label="Largest Loser" value={stats.largestLoser.toFixed(2)} />
+        <Metric label="Max Drawdown" value={stats.drawdown.toFixed(2)} />
+        <Metric label="Avg Winner" value={stats.avgWinner.toFixed(2)} />
+        <Metric label="Avg Loser" value={stats.avgLoser.toFixed(2)} />
+      </div>
 
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Metric label="Green Days" value={String(stats.greenDays)} />
+        <Metric label="Red Days" value={String(stats.redDays)} />
+        <Metric label="Long P&L" value={stats.longPnL.toFixed(2)} />
+        <Metric label="Short P&L" value={stats.shortPnL.toFixed(2)} />
       </div>
 
     </div>
   );
 }
-``

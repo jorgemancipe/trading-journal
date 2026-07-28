@@ -1,21 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useTrades } from "../context/TradesContext";
 
 export default function TradeHistory() {
-  const [trades, setTrades] = useState<any[]>([]);
-
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem("trades") || "[]"
-      );
-
-      setTrades(Array.isArray(saved) ? saved : []);
-    } catch {
-      setTrades([]);
-    }
-  }, []);
+  const {
+    trades,
+    setTrades,
+    clearTrades,
+  } = useTrades() as any;
 
   function n(v: any) {
     const x = Number(v);
@@ -62,7 +55,7 @@ export default function TradeHistory() {
   const duplicateMap = useMemo(() => {
     const map: Record<string, number> = {};
 
-    trades.forEach((trade) => {
+    trades.forEach((trade: any) => {
       const key = tradeKey(trade);
 
       map[key] = (map[key] || 0) + 1;
@@ -90,7 +83,7 @@ export default function TradeHistory() {
 
     const seen = new Set();
 
-    const updated = trades.filter((trade) => {
+    const updated = trades.filter((trade: any) => {
       const key = tradeKey(trade);
 
       if (seen.has(key)) {
@@ -109,12 +102,12 @@ export default function TradeHistory() {
     save(updated);
   }
 
-  function clearAll() {
+  function clearEverything() {
     if (!confirm("Delete ALL trades?")) return;
 
     localStorage.removeItem("trades");
 
-    setTrades([]);
+    clearTrades();
   }
 
   function exportPDF() {
@@ -126,7 +119,7 @@ export default function TradeHistory() {
     let totalPnL = 0;
     let wins = 0;
 
-    trades.forEach((t) => {
+    trades.forEach((t: any) => {
       const pnl = n(t.profit);
 
       totalPnL += pnl;
@@ -142,6 +135,7 @@ export default function TradeHistory() {
     const html = `
       <html>
       <body style="padding:20px;font-family:Arial">
+
         <h1>Trading Performance Report</h1>
 
         <p>Total Trades: ${trades.length}</p>
@@ -160,7 +154,7 @@ export default function TradeHistory() {
 
           ${trades
             .map(
-              (t) => `
+              (t: any) => `
             <tr>
               <td>${normalizeDate(t.date)}</td>
               <td>${t.symbol}</td>
@@ -172,7 +166,9 @@ export default function TradeHistory() {
           `
             )
             .join("")}
+
         </table>
+
       </body>
       </html>
     `;
@@ -187,7 +183,7 @@ export default function TradeHistory() {
   }
 
   const sortedTrades = [...trades].sort(
-    (a, b) =>
+    (a: any, b: any) =>
       new Date(b.date).getTime() -
       new Date(a.date).getTime()
   );
@@ -199,6 +195,7 @@ export default function TradeHistory() {
       </h2>
 
       <div className="flex gap-2 flex-wrap">
+
         <button
           onClick={exportPDF}
           className="bg-purple-600 text-white px-3 py-2 rounded font-bold"
@@ -214,11 +211,12 @@ export default function TradeHistory() {
         </button>
 
         <button
-          onClick={clearAll}
+          onClick={clearEverything}
           className="bg-red-600 text-white px-3 py-2 rounded font-bold"
         >
           Clear All
         </button>
+
       </div>
 
       <table className="w-full text-sm border border-gray-300">
@@ -235,7 +233,7 @@ export default function TradeHistory() {
         </thead>
 
         <tbody>
-          {sortedTrades.map((t, i) => {
+          {sortedTrades.map((t: any, i: number) => {
             const duplicate = isDuplicate(t);
 
             return (
@@ -289,6 +287,17 @@ export default function TradeHistory() {
               </tr>
             );
           })}
+
+          {trades.length === 0 && (
+            <tr>
+              <td
+                colSpan={7}
+                className="text-center py-6 text-gray-500"
+              >
+                No trades found.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>

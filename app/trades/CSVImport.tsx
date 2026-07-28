@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTrades } from "../context/TradesContext";
 
 type BrokerType = "DAS" | "IBKR" | "Thinkorswim";
 
@@ -44,6 +45,8 @@ type BuiltTrade = {
 };
 
 export default function CSVImport() {
+  const { trades, setTrades } = useTrades() as any;
+
   const [fileName, setFileName] = useState("");
   const [brokerType, setBrokerType] = useState<BrokerType>("DAS");
   const [tradingDate, setTradingDate] = useState(
@@ -51,12 +54,15 @@ export default function CSVImport() {
   );
   const [previewTrades, setPreviewTrades] = useState<BuiltTrade[]>([]);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [lastImportMessage, setLastImportMessage] = useState("");
 
   function n(v: any) {
     const raw = String(v || "").trim();
     const negative = raw.includes("(") && raw.includes(")");
     const x = Number(raw.replace(/[$,()]/g, ""));
+
     if (!Number.isFinite(x)) return 0;
+
     return negative ? -x : x;
   }
 
@@ -66,8 +72,10 @@ export default function CSVImport() {
 
   function detectSeparator(text: string) {
     const firstLine = text.split(/\r?\n/)[0] || "";
+
     if (firstLine.includes("\t")) return "\t";
     if (firstLine.includes(";")) return ";";
+
     return ",";
   }
 
@@ -94,6 +102,7 @@ export default function CSVImport() {
     }
 
     result.push(current.trim());
+
     return result;
   }
 
@@ -165,7 +174,6 @@ export default function CSVImport() {
     if (lines.length < 2) return [];
 
     const headers = parseCSVLine(lines[0], separator).map(normalizeHeader);
-
     const executions: Execution[] = [];
 
     for (const line of lines.slice(1)) {
@@ -183,8 +191,12 @@ export default function CSVImport() {
 
         executions.push({
           id: crypto.randomUUID(),
-          date: buildLocalDateTime(tradingDate, getValue(obj, ["Time", "TIME"])),
-          symbol: getValue(obj, ["Symbol", "SYMBOL"]).toUpperCase() || "UNKNOWN",
+          date: buildLocalDateTime(
+            tradingDate,
+            getValue(obj, ["Time", "TIME"])
+          ),
+          symbol:
+            getValue(obj, ["Symbol", "SYMBOL"]).toUpperCase() || "UNKNOWN",
           side,
           quantity: n(getValue(obj, ["Qty", "Quantity", "Shares"])),
           price: n(getValue(obj, ["Price", "Avg Price"])),
@@ -195,7 +207,9 @@ export default function CSVImport() {
           fees: 0,
         });
       } else {
-        const side = normalizeSide(getValue(obj, ["Side", "Action", "Buy/Sell"]));
+        const side = normalizeSide(
+          getValue(obj, ["Side", "Action", "Buy/Sell"])
+        );
 
         if (side === "UNKNOWN") continue;
 
@@ -230,10 +244,7 @@ export default function CSVImport() {
     }
 
     return executions.filter(
-      (e) =>
-        e.symbol !== "UNKNOWN" &&
-        e.quantity > 0 &&
-        e.price > 0
+      (e) => e.symbol !== "UNKNOWN" && e.quantity > 0 && e.price > 0
     );
   }
 
@@ -357,8 +368,7 @@ export default function CSVImport() {
           const addAbs = Math.abs(signedQty);
           const newAbs = oldAbs + addAbs;
 
-          avgEntry =
-            (avgEntry * oldAbs + e.price * addAbs) / newAbs;
+          avgEntry = (avgEntry * oldAbs + e.price * addAbs) / newAbs;
 
           position += signedQty;
           openQty += addAbs;
@@ -387,7 +397,6 @@ export default function CSVImport() {
 
           if (position === 0) {
             saveTrade(false);
-
             resetTrade();
 
             if (remainingQty > 0) {
@@ -409,6 +418,7 @@ export default function CSVImport() {
 
       if (position !== 0 && direction) {
         saveTrade(true);
+
         warnings.push(
           `${symbol} has an open ${direction} position of ${Math.abs(
             position
@@ -422,27 +432,29 @@ export default function CSVImport() {
     return builtTrades;
   }
 
-  function tradeKey(t: BuiltTrade) {
+  function tradeKey(t: any) {
     return [
-      t.broker,
-      t.account,
-      t.date,
-      t.symbol,
-      t.side,
-      t.quantity,
-      Number(t.entry).toFixed(4),
-      Number(t.exit).toFixed(4),
-      Number(t.profit).toFixed(2),
+      t.broker || "",
+      t.account || "",
+      t.date || "",
+      t.symbol || "",
+      t.side || "",
+      n(t.quantity),
+      n(t.entry).toFixed(4),
+      n(t.exit).toFixed(4),
+      n(t.profit).toFixed(2),
     ].join("|");
   }
 
   function parseTrades(text: string) {
     const executions = parseExecutions(text);
+
     return buildTradesFromExecutions(executions);
   }
 
   async function handleFile(file: File) {
     setFileName(file.name);
+    setLastImportMessage("");
 
     const text = await file.text();
     const parsed = parseTrades(text);
@@ -451,9 +463,7 @@ export default function CSVImport() {
   }
 
   function saveTrades(replace: boolean) {
-    const existing = replace
-      ? []
-      : JSON.parse(localStorage.getItem("trades") || "[]");
+    const existing = replace ? [] : Array.isArray(trades) ? trades : [];
 
     const existingKeys = new Set(existing.map(tradeKey));
 
@@ -463,11 +473,12 @@ export default function CSVImport() {
 
     const updated = [...existing, ...cleanTrades];
 
-    localStorage.setItem("trades", JSON.stringify(updated));
+    setTrades(updated);
 
-    alert(`Imported ${cleanTrades.length} trade(s)`);
+    setLastImportMessage(`Imported ${cleanTrades.length} trade(s).`);
 
-    location.reload();
+    setPreviewTrades([]);
+    setFileName("");
   }
 
   const totalPnL = previewTrades.reduce(
@@ -512,6 +523,7 @@ export default function CSVImport() {
           accept=".csv,.txt"
           onChange={(e) => {
             const file = e.target.files?.[0];
+
             if (file) handleFile(file);
           }}
           className="w-full bg-slate-800 border border-slate-700 rounded p-3"
@@ -519,6 +531,12 @@ export default function CSVImport() {
 
         {fileName && (
           <div className="text-sm text-gray-400">{fileName}</div>
+        )}
+
+        {lastImportMessage && (
+          <div className="bg-green-600/20 border border-green-600 text-green-300 p-3 rounded">
+            {lastImportMessage}
+          </div>
         )}
 
         {previewTrades.length > 0 && (
@@ -553,6 +571,7 @@ export default function CSVImport() {
             {importWarnings.length > 0 && (
               <div className="bg-yellow-500 text-black p-3 rounded text-sm">
                 <div className="font-bold">Warnings</div>
+
                 {importWarnings.map((w, i) => (
                   <div key={i}>{w}</div>
                 ))}

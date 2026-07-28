@@ -1,6 +1,7 @@
 "use client";
 
 import CSVImport from "./CSVImport";
+import TradesClient from "./TradesClient";
 import RiskPanel from "./RiskPanel";
 import Dashboard from "./Dashboard";
 import DailyScoreChart from "./DailyScoreChart";
@@ -19,8 +20,13 @@ export default function TradesPage() {
         Trading Journal
       </h1>
 
+      {/* IMPORTS */}
       <CSVImport />
 
+      {/* MANUAL TRADE ENTRY */}
+      <TradesClient />
+
+      {/* ANALYTICS */}
       <RiskPanel />
 
       <Dashboard />
@@ -37,6 +43,7 @@ export default function TradesPage() {
 
       <EquityChart />
 
+      {/* HISTORY */}
       <TradeHistory />
 
     </div>

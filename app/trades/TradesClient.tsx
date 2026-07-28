@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useTrades, Trade } from "../context/TradesContext";
+import { useMemo, useState } from "react";
+import { useTrades } from "../context/TradesContext";
 
 const STRATEGY_PRESETS = [
   "ORB (Opening Range Breakout)",
@@ -12,261 +12,554 @@ const STRATEGY_PRESETS = [
   "Camarilla Levels",
   "Volume Confirmation",
   "Level 2 Confirmation",
+  "Breakout",
+  "Reversal",
+  "Trend Continuation",
+  "Scalp",
   "Custom…",
 ] as const;
 
 type StrategyPreset = (typeof STRATEGY_PRESETS)[number];
 
-type TradeForm = {
+type ManualTradeForm = {
   date: string;
   symbol: string;
+  broker: string;
+  account: string;
   side: "Buy" | "Sell";
   quantity: number;
   entry: number;
   exit: number;
+  stop: number;
+  target: number;
   risk: number;
-
   strategyPreset: StrategyPreset;
   customStrategy: string;
+  notes: string;
+  screenshotUrl: string;
 };
 
-export default function TradesClient() {
-  const { trades, addTrade, clearTrades } = useTrades();
-  const today = new Date().toISOString().slice(0, 10);
+function todayLocal() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
-  const [form, setForm] = useState<TradeForm>({
-    date: today,
+function n(v: any) {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : 0;
+}
+
+export default function TradesClient() {
+  const { addTrade } = useTrades();
+
+  const [form, setForm] = useState<ManualTradeForm>({
+    date: todayLocal(),
     symbol: "",
+    broker: "Manual",
+    account: "DEFAULT",
     side: "Buy",
     quantity: 0,
     entry: 0,
     exit: 0,
+    stop: 0,
+    target: 0,
     risk: 0,
-    strategyPreset: STRATEGY_PRESETS[0], // ✅ now typed as StrategyPreset union
+    strategyPreset: STRATEGY_PRESETS[0],
     customStrategy: "",
+    notes: "",
+    screenshotUrl: "",
   });
 
   const isCustom = form.strategyPreset === "Custom…";
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-
-    const symbol = form.symbol.trim().toUpperCase();
-    if (!symbol) return;
-    if (form.quantity <= 0 || form.entry <= 0 || form.exit <= 0) return;
-    if (form.risk <= 0) return;
+  const calculated = useMemo(() => {
+    const qty = n(form.quantity);
+    const entry = n(form.entry);
+    const exit = n(form.exit);
+    const stop = n(form.stop);
+    const target = n(form.target);
 
     const profit =
       form.side === "Buy"
-        ? (form.exit - form.entry) * form.quantity
-        : (form.entry - form.exit) * form.quantity;
+        ? (exit - entry) * qty
+        : (entry - exit) * qty;
 
-    const chosenStrategy = isCustom
-      ? form.customStrategy.trim()
-      : form.strategyPreset;
+    const autoRisk =
+      stop > 0 && entry > 0 && qty > 0
+        ? Math.abs(entry - stop) * qty
+        : n(form.risk);
 
-    const trade: Trade = {
-      id: Date.now(),
-      date: form.date,
-      symbol,
-      side: form.side,
-      quantity: form.quantity,
-      entry: form.entry,
-      exit: form.exit,
+    const reward =
+      target > 0 && entry > 0 && qty > 0
+        ? form.side === "Buy"
+          ? Math.max(0, target - entry) * qty
+          : Math.max(0, entry - target) * qty
+        : 0;
+
+    const rMultiple = autoRisk > 0 ? profit / autoRisk : 0;
+    const rewardRisk = autoRisk > 0 && reward > 0 ? reward / autoRisk : 0;
+
+    return {
       profit,
-      risk: form.risk,
-      strategy: chosenStrategy || "Unassigned",
+      risk: autoRisk,
+      reward,
+      rMultiple,
+      rewardRisk,
     };
+  }, [form]);
 
-    addTrade(trade);
-
+  function resetForm() {
     setForm((prev) => ({
       ...prev,
       symbol: "",
       quantity: 0,
       entry: 0,
       exit: 0,
+      stop: 0,
+      target: 0,
       risk: 0,
       customStrategy: "",
+      notes: "",
+      screenshotUrl: "",
     }));
   }
 
-  return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-900">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-3xl font-bold">Trades</h1>
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
 
-        <button
-          onClick={clearTrades}
-          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-500"
-        >
-          Clear All
-        </button>
+    const symbol = form.symbol.trim().toUpperCase();
+
+    if (!symbol) {
+      alert("Symbol is required.");
+      return;
+    }
+
+    if (form.quantity <= 0) {
+      alert("Quantity must be greater than 0.");
+      return;
+    }
+
+    if (form.entry <= 0) {
+      alert("Entry price must be greater than 0.");
+      return;
+    }
+
+    if (form.exit <= 0) {
+      alert("Exit price must be greater than 0.");
+      return;
+    }
+
+    if (calculated.risk <= 0) {
+      alert("Risk must be greater than 0. Add risk manually or enter a stop price.");
+      return;
+    }
+
+    const strategy = isCustom
+      ? form.customStrategy.trim() || "Custom"
+      : form.strategyPreset;
+
+    const trade = {
+      id: crypto.randomUUID(),
+      date: `${form.date}T00:00:00`,
+      symbol,
+      side: form.side,
+      direction: form.side === "Buy" ? "Long" : "Short",
+      quantity: n(form.quantity),
+      entry: n(form.entry),
+      exit: n(form.exit),
+      stop: n(form.stop),
+      target: n(form.target),
+      strategy,
+      profit: Number(calculated.profit.toFixed(2)),
+      grossProfit: Number(calculated.profit.toFixed(2)),
+      risk: Number(calculated.risk.toFixed(2)),
+      rMultiple: Number(calculated.rMultiple.toFixed(2)),
+      rewardRisk: Number(calculated.rewardRisk.toFixed(2)),
+      broker: form.broker || "Manual",
+      account: form.account || "DEFAULT",
+      notes: form.notes,
+      screenshotUrl: form.screenshotUrl,
+      source: "MANUAL_ENTRY",
+    };
+
+    addTrade(trade);
+
+    alert("Manual trade added.");
+
+    resetForm();
+  }
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 text-white p-6 rounded-xl space-y-6">
+      <div>
+        <h2 className="text-xl font-bold">Manual Trade Entry</h2>
+        <p className="text-sm text-gray-400 mt-1">
+          Add trades manually for testing, journaling, or broker corrections.
+        </p>
       </div>
 
-      <form
-        onSubmit={submit}
-        className="bg-white border rounded p-4 grid grid-cols-2 gap-4 mb-6"
-      >
-        <input
-          type="date"
-          value={form.date}
-          onChange={(e) => setForm({ ...form, date: e.target.value })}
-          className="border rounded px-3 py-2"
-          required
-        />
+      <form onSubmit={submit} className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Field label="Date">
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  date: e.target.value,
+                }))
+              }
+              className="input"
+              required
+            />
+          </Field>
 
-        <input
-          placeholder="Symbol (e.g. AAPL)"
-          value={form.symbol}
-          onChange={(e) => setForm({ ...form, symbol: e.target.value })}
-          className="border rounded px-3 py-2"
-          required
-        />
+          <Field label="Symbol">
+            <input
+              placeholder="AAPL, TSLA, AMDL"
+              value={form.symbol}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  symbol: e.target.value,
+                }))
+              }
+              className="input uppercase"
+              required
+            />
+          </Field>
 
-        <select
-          value={form.strategyPreset}
-          onChange={(e) =>
-            setForm({ ...form, strategyPreset: e.target.value as StrategyPreset })
-          }
-          className="border rounded px-3 py-2"
-        >
-          {STRATEGY_PRESETS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          <Field label="Broker">
+            <input
+              value={form.broker}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  broker: e.target.value,
+                }))
+              }
+              className="input"
+              placeholder="DAS, IBKR, Schwab, Manual"
+            />
+          </Field>
 
-        {isCustom ? (
-          <input
-            placeholder='Custom Strategy (e.g. "ABC Setup")'
-            value={form.customStrategy}
-            onChange={(e) =>
-              setForm({ ...form, customStrategy: e.target.value })
-            }
-            className="border rounded px-3 py-2"
+          <Field label="Account">
+            <input
+              value={form.account}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  account: e.target.value,
+                }))
+              }
+              className="input"
+              placeholder="DEFAULT"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <Field label="Direction">
+            <select
+              value={form.side}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  side: e.target.value as "Buy" | "Sell",
+                }))
+              }
+              className="input"
+            >
+              <option value="Buy">Long / Buy</option>
+              <option value="Sell">Short / Sell</option>
+            </select>
+          </Field>
+
+          <Field label="Quantity">
+            <input
+              type="number"
+              value={form.quantity}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  quantity: Number(e.target.value),
+                }))
+              }
+              className="input"
+              min="0"
+              step="1"
+              required
+            />
+          </Field>
+
+          <Field label="Entry">
+            <input
+              type="number"
+              value={form.entry}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  entry: Number(e.target.value),
+                }))
+              }
+              className="input"
+              min="0"
+              step="0.0001"
+              required
+            />
+          </Field>
+
+          <Field label="Exit">
+            <input
+              type="number"
+              value={form.exit}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  exit: Number(e.target.value),
+                }))
+              }
+              className="input"
+              min="0"
+              step="0.0001"
+              required
+            />
+          </Field>
+
+          <Field label="Manual Risk">
+            <input
+              type="number"
+              value={form.risk}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  risk: Number(e.target.value),
+                }))
+              }
+              className="input"
+              min="0"
+              step="0.01"
+              placeholder="Optional if stop is used"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Field label="Stop">
+            <input
+              type="number"
+              value={form.stop}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  stop: Number(e.target.value),
+                }))
+              }
+              className="input"
+              min="0"
+              step="0.0001"
+              placeholder="Optional"
+            />
+          </Field>
+
+          <Field label="Target">
+            <input
+              type="number"
+              value={form.target}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  target: Number(e.target.value),
+                }))
+              }
+              className="input"
+              min="0"
+              step="0.0001"
+              placeholder="Optional"
+            />
+          </Field>
+
+          <Field label="Strategy">
+            <select
+              value={form.strategyPreset}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  strategyPreset: e.target.value as StrategyPreset,
+                }))
+              }
+              className="input"
+            >
+              {STRATEGY_PRESETS.map((strategy) => (
+                <option key={strategy} value={strategy}>
+                  {strategy}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {isCustom ? (
+            <Field label="Custom Strategy">
+              <input
+                value={form.customStrategy}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    customStrategy: e.target.value,
+                  }))
+                }
+                className="input"
+                placeholder="My setup name"
+              />
+            </Field>
+          ) : (
+            <div className="bg-slate-800 rounded-lg p-3 flex items-end text-sm text-gray-400">
+              Preset strategy selected
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Notes">
+            <textarea
+              value={form.notes}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  notes: e.target.value,
+                }))
+              }
+              className="input min-h-[90px]"
+              placeholder="What was the setup? What did you do well? What should improve?"
+            />
+          </Field>
+
+          <Field label="Screenshot URL">
+            <input
+              value={form.screenshotUrl}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  screenshotUrl: e.target.value,
+                }))
+              }
+              className="input"
+              placeholder="Optional chart screenshot link"
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <PreviewMetric
+            label="Estimated P&L"
+            value={calculated.profit.toFixed(2)}
+            positive={calculated.profit >= 0}
           />
-        ) : (
-          <div className="text-sm text-gray-500 flex items-center px-2">
-            Preset selected
-          </div>
-        )}
 
-        <select
-          value={form.side}
-          onChange={(e) =>
-            setForm({ ...form, side: e.target.value as "Buy" | "Sell" })
-          }
-          className="border rounded px-3 py-2"
-        >
-          <option value="Buy">Buy (Long)</option>
-          <option value="Sell">Sell (Short)</option>
-        </select>
+          <PreviewMetric
+            label="Risk"
+            value={calculated.risk.toFixed(2)}
+            positive={calculated.risk > 0}
+          />
 
-        <input
-          type="number"
-          placeholder="Quantity"
-          value={form.quantity}
-          onChange={(e) =>
-            setForm({ ...form, quantity: Number(e.target.value) })
-          }
-          className="border rounded px-3 py-2"
-          required
-        />
+          <PreviewMetric
+            label="R-Multiple"
+            value={calculated.rMultiple.toFixed(2)}
+            positive={calculated.rMultiple >= 0}
+          />
 
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Entry Price"
-          value={form.entry}
-          onChange={(e) =>
-            setForm({ ...form, entry: Number(e.target.value) })
-          }
-          className="border rounded px-3 py-2"
-          required
-        />
+          <PreviewMetric
+            label="Reward"
+            value={calculated.reward.toFixed(2)}
+            positive={calculated.reward >= 0}
+          />
 
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Exit Price"
-          value={form.exit}
-          onChange={(e) =>
-            setForm({ ...form, exit: Number(e.target.value) })
-          }
-          className="border rounded px-3 py-2"
-          required
-        />
+          <PreviewMetric
+            label="Reward/Risk"
+            value={calculated.rewardRisk.toFixed(2)}
+            positive={calculated.rewardRisk >= 1}
+          />
+        </div>
 
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Risk ($) — required for R metrics"
-          value={form.risk}
-          onChange={(e) =>
-            setForm({ ...form, risk: Number(e.target.value) })
-          }
-          className="border rounded px-3 py-2"
-          required
-        />
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            className="bg-green-600 hover:bg-green-700 px-5 py-3 rounded font-bold"
+          >
+            Add Manual Trade
+          </button>
 
-        <button
-          type="submit"
-          className="col-span-2 bg-green-600 text-white py-2 rounded hover:bg-green-500"
-        >
-          Add Trade
-        </button>
+          <button
+            type="button"
+            onClick={resetForm}
+            className="bg-slate-700 hover:bg-slate-600 px-5 py-3 rounded font-bold"
+          >
+            Reset Form
+          </button>
+        </div>
       </form>
 
-      <div className="bg-white border rounded overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="px-4 py-2 text-left">Date</th>
-              <th className="px-4 py-2 text-left">Symbol</th>
-              <th className="px-4 py-2 text-left">Strategy</th>
-              <th className="px-4 py-2 text-right">Profit</th>
-              <th className="px-4 py-2 text-right">Risk</th>
-              <th className="px-4 py-2 text-right">R</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trades.map((t) => {
-              const r = t.risk > 0 ? t.profit / t.risk : 0;
-              return (
-                <tr key={t.id} className="border-t">
-                  <td className="px-4 py-2">{t.date}</td>
-                  <td className="px-4 py-2 font-medium">{t.symbol}</td>
-                  <td className="px-4 py-2">{t.strategy}</td>
-                  <td
-                    className={`px-4 py-2 text-right font-semibold ${
-                      t.profit >= 0 ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {t.profit.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right">{t.risk.toFixed(2)}</td>
-                  <td
-                    className={`px-4 py-2 text-right font-semibold ${
-                      r >= 0 ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {r.toFixed(2)}
-                  </td>
-                </tr>
-              );
-            })}
-            {trades.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                  No trades yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <style jsx>{`
+        .input {
+          width: 100%;
+          background: rgb(30 41 59);
+          border: 1px solid rgb(51 65 85);
+          color: white;
+          border-radius: 0.5rem;
+          padding: 0.6rem 0.75rem;
+          outline: none;
+        }
+
+        .input:focus {
+          border-color: rgb(34 197 94);
+        }
+
+        .input::placeholder {
+          color: rgb(148 163 184);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <div className="text-sm text-gray-400 mb-1">{label}</div>
+      {children}
+    </label>
+  );
+}
+
+function PreviewMetric({
+  label,
+  value,
+  positive,
+}: {
+  label: string;
+  value: string;
+  positive: boolean;
+}) {
+  return (
+    <div className="bg-slate-800 p-4 rounded-xl">
+      <div className="text-xs text-gray-400">{label}</div>
+      <div
+        className={`text-xl font-bold ${
+          positive ? "text-green-400" : "text-red-400"
+        }`}
+      >
+        {value}
       </div>
-    </main>
+    </div>
   );
 }
