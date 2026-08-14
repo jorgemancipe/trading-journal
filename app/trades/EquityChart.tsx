@@ -1,173 +1,301 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { useTrades } from "../context/TradesContext";
-import { useMemo, useState, useEffect } from "react";
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
   Area,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  CartesianGrid,
-  ReferenceLine
 } from "recharts";
 
 export default function EquityChart() {
   const { trades } = useTrades() as any;
 
   const [mode, setMode] = useState<"NET" | "GROSS">("NET");
-
   const [maxDD, setMaxDD] = useState(-2000);
   const [dailyLimit, setDailyLimit] = useState(-1000);
 
-  function n(v: any) {
-    const x = Number(v);
-    return Number.isFinite(x) ? x : 0;
+  function n(value: any) {
+    const result = Number(value);
+    return Number.isFinite(result) ? result : 0;
   }
 
-  function fmt(v: number) {
-    return v.toFixed(2);
+  function fmt(value: number) {
+    return value.toFixed(2);
   }
 
-  // ✅ REAL-TIME SYNC FIX
   useEffect(() => {
-    function load() {
-      const saved = localStorage.getItem("riskSettings");
-      if (saved) {
-        const s = JSON.parse(saved);
-        setMaxDD(Number(s.maxDD) || -2000);
-        setDailyLimit(Number(s.dailyLimit) || -1000);
+    function loadRiskSettings() {
+      try {
+        const saved = localStorage.getItem("riskSettings");
+
+        if (!saved) return;
+
+        const settings = JSON.parse(saved);
+
+        setMaxDD(n(settings.maxDD) || -2000);
+        setDailyLimit(n(settings.dailyLimit) || -1000);
+      } catch {
+        setMaxDD(-2000);
+        setDailyLimit(-1000);
       }
     }
 
-    load();
+    loadRiskSettings();
 
-    window.addEventListener("riskUpdated", load);
+    window.addEventListener("riskUpdated", loadRiskSettings);
 
     return () => {
-      window.removeEventListener("riskUpdated", load);
+      window.removeEventListener(
+        "riskUpdated",
+        loadRiskSettings
+      );
     };
   }, []);
 
-  const data = useMemo(() => {
+  const analytics = useMemo(() => {
     let equity = 0;
     let peak = 0;
+    let maximumDrawdown = 0;
 
-    return (trades || []).map((t: any, i: number) => {
-      const pnl = mode === "NET" ? n(t.profit) : n(t.grossProfit || t.profit);
-
-      equity += pnl;
-      peak = Math.max(peak, equity);
-
-      return {
-        trade: i + 1,
-        equity,
-        peak,
-        drawdown: equity - peak
-      };
+    const sortedTrades = [
+      ...(Array.isArray(trades) ? trades : []),
+    ].sort((a: any, b: any) => {
+      return (
+        new Date(a.date).getTime() -
+        new Date(b.date).getTime()
+      );
     });
+
+    const data = sortedTrades.map(
+      (trade: any, index: number) => {
+        const pnl =
+          mode === "NET"
+            ? n(trade.profit)
+            : n(trade.grossProfit ?? trade.profit);
+
+        equity += pnl;
+        peak = Math.max(peak, equity);
+
+        const drawdown = equity - peak;
+
+        maximumDrawdown = Math.min(
+          maximumDrawdown,
+          drawdown
+        );
+
+        return {
+          trade: index + 1,
+          symbol: trade.symbol || "UNKNOWN",
+          date:
+            typeof trade.date === "string"
+              ? trade.date.slice(0, 10)
+              : "",
+          pnl,
+          equity,
+          peak,
+          drawdown,
+        };
+      }
+    );
+
+    return {
+      data,
+      currentEquity: equity,
+      peak,
+      maximumDrawdown,
+      currentDrawdown:
+        data.length > 0
+          ? data[data.length - 1].drawdown
+          : 0,
+    };
   }, [trades, mode]);
 
   return (
-    <div className="bg-slate-950 p-6 rounded-xl text-white space-y-4">
+    <div className="bg-slate-950 border border-slate-800 p-6 rounded-xl text-white space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold">
+            Equity and Drawdown
+          </h2>
 
-      <h2 className="text-xl font-bold">
-        Equity + Drawdown
-      </h2>
+          <p className="text-sm text-slate-400">
+            Cumulative trading performance
+          </p>
+        </div>
 
-      <div className="flex gap-2">
-        <button
-          onClick={() => setMode("NET")}
-          className="bg-green-600 px-3 py-1 rounded"
-        >
-          NET
-        </button>
-        <button
-          onClick={() => setMode("GROSS")}
-          className="bg-blue-600 px-3 py-1 rounded"
-        >
-          GROSS
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("NET")}
+            className={`px-4 py-2 rounded font-bold ${
+              mode === "NET"
+                ? "bg-green-600"
+                : "bg-slate-800"
+            }`}
+          >
+            NET
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode("GROSS")}
+            className={`px-4 py-2 rounded font-bold ${
+              mode === "GROSS"
+                ? "bg-blue-600"
+                : "bg-slate-800"
+            }`}
+          >
+            GROSS
+          </button>
+        </div>
       </div>
 
-      <div className="h-[400px]">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Metric
+          label="Current Equity"
+          value={fmt(analytics.currentEquity)}
+          color={
+            analytics.currentEquity >= 0
+              ? "text-green-400"
+              : "text-red-400"
+          }
+        />
 
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
+        <Metric
+          label="High Watermark"
+          value={fmt(analytics.peak)}
+          color="text-sky-400"
+        />
 
-            <CartesianGrid stroke="#1e293b" />
-            <XAxis dataKey="trade" />
-            <YAxis />
+        <Metric
+          label="Current Drawdown"
+          value={fmt(analytics.currentDrawdown)}
+          color="text-red-400"
+        />
 
-            <Tooltip />
-
-            {/* ✅ Max DD */}
-            <ReferenceLine
-              y={maxDD}
-              stroke="red"
-              strokeDasharray="6 4"
-            />
-
-            {/* ✅ Daily Limit */}
-            <ReferenceLine
-              y={dailyLimit}
-              stroke="#f59e0b"
-              strokeDasharray="4 4"
-            />
-
-            {/* Equity */}
-            <Area
-              dataKey="equity"
-              stroke="#22c55e"
-              fill="#22c55e33"
-              strokeWidth={3}
-            />
-
-            {/* Peak */}
-            <Line
-              dataKey="peak"
-              stroke="#38bdf8"
-              dot={false}
-            />
-
-            {/* Drawdown */}
-            <Line
-              dataKey="drawdown"
-              stroke="#ef4444"
-              dot={false}
-            />
-
-          </LineChart>
-        </ResponsiveContainer>
-
+        <Metric
+          label="Maximum Drawdown"
+          value={fmt(analytics.maximumDrawdown)}
+          color="text-red-500"
+        />
       </div>
 
-      {/* ✅ Values */}
-      {data.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+      {analytics.data.length === 0 ? (
+        <div className="border border-dashed border-slate-700 rounded-xl p-10 text-center text-slate-400">
+          Add or import trades to display the equity chart.
+        </div>
+      ) : (
+        <div className="h-[400px] bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={analytics.data}>
+              <CartesianGrid
+                stroke="#1e293b"
+                strokeDasharray="4 4"
+              />
 
-          <div>
-            <div>Equity</div>
-            <b>{fmt(data.at(-1).equity)}</b>
-          </div>
+              <XAxis
+                dataKey="trade"
+                stroke="#94a3b8"
+              />
 
-          <div>
-            <div>Drawdown</div>
-            <b className="text-red-400">
-              {fmt(data.at(-1).drawdown)}
-            </b>
-          </div>
+              <YAxis stroke="#94a3b8" />
 
-          <div>
-            <div>DD Limit</div>
-            <b className="text-red-500">{fmt(maxDD)}</b>
-          </div>
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#020617",
+                  border: "1px solid #334155",
+                  borderRadius: "8px",
+                }}
+                labelFormatter={(value) =>
+                  `Trade ${value}`
+                }
+                formatter={(value: any, name: any) => [
+                  fmt(n(value)),
+                  name,
+                ]}
+              />
 
+              <ReferenceLine
+                y={0}
+                stroke="#64748b"
+                strokeDasharray="4 4"
+              />
+
+              <ReferenceLine
+                y={maxDD}
+                stroke="#ef4444"
+                strokeDasharray="6 4"
+              />
+
+              <ReferenceLine
+                y={dailyLimit}
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+              />
+
+              <Area
+                type="monotone"
+                dataKey="equity"
+                stroke="#22c55e"
+                fill="#22c55e33"
+                strokeWidth={3}
+              />
+
+              <Line
+                type="monotone"
+                dataKey="peak"
+                stroke="#38bdf8"
+                strokeWidth={2}
+                dot={false}
+              />
+
+              <Line
+                type="monotone"
+                dataKey="drawdown"
+                stroke="#ef4444"
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
 
+      <div className="flex flex-wrap gap-4 text-xs text-slate-400">
+        <span>Green: equity</span>
+        <span>Blue: high watermark</span>
+        <span>Red: drawdown</span>
+        <span>Orange: daily loss limit</span>
+      </div>
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color: string;
+}) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div className="text-xs text-slate-400">
+        {label}
+      </div>
+
+      <div className={`text-xl font-bold mt-1 ${color}`}>
+        {value}
+      </div>
     </div>
   );
 }
