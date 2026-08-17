@@ -42,6 +42,7 @@ export default function RiskPanel() {
 
   const stats = useMemo(() => {
     let netPnL = 0;
+
     let grossWins = 0;
     let grossLosses = 0;
 
@@ -55,7 +56,6 @@ export default function RiskPanel() {
     let peak = 0;
     let drawdown = 0;
 
-    let totalRisk = 0;
     let totalR = 0;
     let rTrades = 0;
 
@@ -92,7 +92,6 @@ export default function RiskPanel() {
       const risk = n(t.risk);
 
       if (risk > 0) {
-        totalRisk += risk;
         totalR += p / risk;
         rTrades++;
       }
@@ -101,12 +100,18 @@ export default function RiskPanel() {
         t.direction || t.side || ""
       ).toLowerCase();
 
-      if (side.includes("long") || side.includes("buy")) {
+      if (
+        side.includes("long") ||
+        side.includes("buy")
+      ) {
         longTrades++;
         longPnL += p;
       }
 
-      if (side.includes("short") || side.includes("sell")) {
+      if (
+        side.includes("short") ||
+        side.includes("sell")
+      ) {
         shortTrades++;
         shortPnL += p;
       }
@@ -145,14 +150,24 @@ export default function RiskPanel() {
         : 0;
 
     const avgR =
-      rTrades > 0 ? totalR / rTrades : 0;
+      rTrades > 0
+        ? totalR / rTrades
+        : 0;
+
+    const recoveryFactor =
+      drawdown > 0
+        ? netPnL / drawdown
+        : 0;
 
     let greenDays = 0;
     let redDays = 0;
 
     Object.values(daily).forEach((v) => {
-      if (v >= 0) greenDays++;
-      else redDays++;
+      if (v >= 0) {
+        greenDays++;
+      } else {
+        redDays++;
+      }
     });
 
     const today =
@@ -166,10 +181,11 @@ export default function RiskPanel() {
       avgLoser,
       profitFactor,
       expectancy,
+      avgR,
+      recoveryFactor,
       drawdown,
       largestWinner,
       largestLoser,
-      avgR,
       greenDays,
       redDays,
       longTrades,
@@ -250,27 +266,91 @@ export default function RiskPanel() {
 
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Metric label="Net P&L" value={stats.netPnL.toFixed(2)} />
-        <Metric label="Win Rate" value={`${stats.winRate.toFixed(1)}%`} />
-        <Metric label="Profit Factor" value={stats.profitFactor.toFixed(2)} />
-        <Metric label="Expectancy" value={stats.expectancy.toFixed(2)} />
-        <Metric label="Avg R" value={stats.avgR.toFixed(2)} />
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+
+        <Metric
+          label="Net P&L"
+          value={stats.netPnL.toFixed(2)}
+        />
+
+        <Metric
+          label="Win Rate"
+          value={`${stats.winRate.toFixed(1)}%`}
+        />
+
+        <Metric
+          label="Profit Factor"
+          value={stats.profitFactor.toFixed(2)}
+        />
+
+        <Metric
+          label="Expectancy"
+          value={stats.expectancy.toFixed(2)}
+        />
+
+        <Metric
+          label="Avg R"
+          value={stats.avgR.toFixed(2)}
+        />
+
+        <Metric
+          label="Recovery Factor"
+          value={stats.recoveryFactor.toFixed(2)}
+        />
+
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Metric label="Largest Winner" value={stats.largestWinner.toFixed(2)} />
-        <Metric label="Largest Loser" value={stats.largestLoser.toFixed(2)} />
-        <Metric label="Max Drawdown" value={stats.drawdown.toFixed(2)} />
-        <Metric label="Avg Winner" value={stats.avgWinner.toFixed(2)} />
-        <Metric label="Avg Loser" value={stats.avgLoser.toFixed(2)} />
+
+        <Metric
+          label="Largest Winner"
+          value={stats.largestWinner.toFixed(2)}
+        />
+
+        <Metric
+          label="Largest Loser"
+          value={stats.largestLoser.toFixed(2)}
+        />
+
+        <Metric
+          label="Max Drawdown"
+          value={stats.drawdown.toFixed(2)}
+        />
+
+        <Metric
+          label="Avg Winner"
+          value={stats.avgWinner.toFixed(2)}
+        />
+
+        <Metric
+          label="Avg Loser"
+          value={stats.avgLoser.toFixed(2)}
+        />
+
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Metric label="Green Days" value={String(stats.greenDays)} />
-        <Metric label="Red Days" value={String(stats.redDays)} />
-        <Metric label="Long P&L" value={stats.longPnL.toFixed(2)} />
-        <Metric label="Short P&L" value={stats.shortPnL.toFixed(2)} />
+
+        <Metric
+          label="Green Days"
+          value={String(stats.greenDays)}
+        />
+
+        <Metric
+          label="Red Days"
+          value={String(stats.redDays)}
+        />
+
+        <Metric
+          label="Long P&L"
+          value={stats.longPnL.toFixed(2)}
+        />
+
+        <Metric
+          label="Short P&L"
+          value={stats.shortPnL.toFixed(2)}
+        />
+
       </div>
 
     </div>
