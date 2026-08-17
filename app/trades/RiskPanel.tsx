@@ -65,9 +65,21 @@ export default function RiskPanel() {
     let longPnL = 0;
     let shortPnL = 0;
 
+    let currentWinStreak = 0;
+    let currentLossStreak = 0;
+
+    let bestWinStreak = 0;
+    let worstLossStreak = 0;
+
     const daily: Record<string, number> = {};
 
-    for (const t of trades || []) {
+    const orderedTrades = [...(trades || [])].sort(
+      (a: any, b: any) =>
+        new Date(a.date).getTime() -
+        new Date(b.date).getTime()
+    );
+
+    for (const t of orderedTrades) {
       const p = n(t.profit);
 
       netPnL += p;
@@ -82,11 +94,27 @@ export default function RiskPanel() {
       if (p > 0) {
         wins++;
         grossWins += p;
+
+        currentWinStreak++;
+        currentLossStreak = 0;
+
+        bestWinStreak = Math.max(
+          bestWinStreak,
+          currentWinStreak
+        );
       }
 
       if (p < 0) {
         losses++;
         grossLosses += Math.abs(p);
+
+        currentLossStreak++;
+        currentWinStreak = 0;
+
+        worstLossStreak = Math.max(
+          worstLossStreak,
+          currentLossStreak
+        );
       }
 
       const risk = n(t.risk);
@@ -186,6 +214,8 @@ export default function RiskPanel() {
       drawdown,
       largestWinner,
       largestLoser,
+      bestWinStreak,
+      worstLossStreak,
       greenDays,
       redDays,
       longTrades,
@@ -332,13 +362,13 @@ export default function RiskPanel() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
         <Metric
-          label="Green Days"
-          value={String(stats.greenDays)}
+          label="Best Win Streak"
+          value={String(stats.bestWinStreak)}
         />
 
         <Metric
-          label="Red Days"
-          value={String(stats.redDays)}
+          label="Worst Loss Streak"
+          value={String(stats.worstLossStreak)}
         />
 
         <Metric
@@ -348,11 +378,4 @@ export default function RiskPanel() {
 
         <Metric
           label="Short P&L"
-          value={stats.shortPnL.toFixed(2)}
-        />
-
-      </div>
-
-    </div>
-  );
-}
+          value=
