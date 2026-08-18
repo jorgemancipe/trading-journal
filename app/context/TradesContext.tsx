@@ -18,6 +18,18 @@ export type Trade = {
   strategy: string;
   profit: number;
   risk: number;
+
+  direction?: string;
+  grossProfit?: number;
+  broker?: string;
+  account?: string;
+  stop?: number;
+  target?: number;
+  notes?: string;
+  screenshotUrl?: string;
+  source?: string;
+  fees?: number;
+  commission?: number;
 };
 
 type TradesContextType = {
@@ -37,33 +49,50 @@ export function TradesProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [trades, setTradesState] = useState<
-    Trade[]
-  >([]);
+  const [trades, setTradesState] = useState<Trade[]>([]);
+  const [storageLoaded, setStorageLoaded] =
+    useState(false);
 
   useEffect(() => {
-    const saved =
-      localStorage.getItem("trades");
+    try {
+      const saved = localStorage.getItem("trades");
 
-    if (saved) {
-      try {
-        setTradesState(JSON.parse(saved));
-      } catch (err) {
-        console.error(err);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+
+        if (Array.isArray(parsed)) {
+          setTradesState(parsed);
+        }
       }
+    } catch (error) {
+      console.error(
+        "Failed to load trades:",
+        error
+      );
+    } finally {
+      setStorageLoaded(true);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      "trades",
-      JSON.stringify(trades)
-    );
-  }, [trades]);
+    if (!storageLoaded) return;
+
+    try {
+      localStorage.setItem(
+        "trades",
+        JSON.stringify(trades)
+      );
+    } catch (error) {
+      console.error(
+        "Failed to save trades:",
+        error
+      );
+    }
+  }, [trades, storageLoaded]);
 
   function addTrade(trade: Trade) {
-    setTradesState((prev) => [
-      ...prev,
+    setTradesState((previousTrades) => [
+      ...previousTrades,
       trade,
     ]);
   }
@@ -74,7 +103,11 @@ export function TradesProvider({
   }
 
   function setTrades(newTrades: Trade[]) {
-    setTradesState(newTrades);
+    setTradesState(
+      Array.isArray(newTrades)
+        ? newTrades
+        : []
+    );
   }
 
   return (
@@ -92,8 +125,7 @@ export function TradesProvider({
 }
 
 export function useTrades() {
-  const context =
-    useContext(TradesContext);
+  const context = useContext(TradesContext);
 
   if (!context) {
     throw new Error(
