@@ -62,6 +62,9 @@ export default function RiskPanel() {
     let longTrades = 0;
     let shortTrades = 0;
 
+    let longWins = 0;
+    let shortWins = 0;
+
     let longPnL = 0;
     let shortPnL = 0;
 
@@ -129,20 +132,30 @@ export default function RiskPanel() {
       ).toLowerCase();
 
       if (
-        side.includes("long") ||
-        side.includes("buy")
-      ) {
-        longTrades++;
-        longPnL += p;
-      }
+  side.includes("long") ||
+  side.includes("buy")
+) {
+  longTrades++;
+  longPnL += p;
+
+  if (p > 0) {
+    longWins++;
+  }
+}
+
 
       if (
-        side.includes("short") ||
-        side.includes("sell")
-      ) {
-        shortTrades++;
-        shortPnL += p;
-      }
+  side.includes("short") ||
+  side.includes("sell")
+) {
+  shortTrades++;
+  shortPnL += p;
+
+  if (p > 0) {
+    shortWins++;
+  }
+}
+      
 
       const day =
         typeof t.date === "string"
@@ -160,7 +173,15 @@ export default function RiskPanel() {
       totalTrades > 0
         ? (wins / totalTrades) * 100
         : 0;
+    const longWinRate =
+  longTrades > 0
+    ? (longWins / longTrades) * 100
+    : 0;
 
+    const shortWinRate =
+  shortTrades > 0
+    ? (shortWins / shortTrades) * 100
+    : 0;  
     const avgWinner =
       wins > 0 ? grossWins / wins : 0;
 
@@ -218,6 +239,8 @@ export default function RiskPanel() {
       worstLossStreak,
       greenDays,
       redDays,
+      longWinRate,
+      shortWinRate, 
       longTrades,
       shortTrades,
       longPnL,
@@ -372,10 +395,43 @@ export default function RiskPanel() {
         />
 
         <Metric
-          label="Long P&L"
-          value={stats.longPnL.toFixed(2)}
+  label="Long Win Rate"
+  value={`${stats.longWinRate.toFixed(1)}%`}
+/>
+
+<Metric
+  label="Short Win Rate"
+  value={`${stats.shortWinRate.toFixed(1)}%`}
+/>
+
+<Metric
+  label="Long P&L"
+  value={stats.longPnL.toFixed(2)}
+/>
+
+<Metric
+  label="Short P&L"
+  value={stats.shortPnL.toFixed(2)}
+/>
+
+        
+
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+
+        <Metric
+          label="Green Days"
+          value={String(stats.greenDays)}
         />
 
         <Metric
-          label="Short P&L"
-          value=
+          label="Red Days"
+          value={String(stats.redDays)}
+        />
+
+      </div>
+
+    </div>
+  );
+}
