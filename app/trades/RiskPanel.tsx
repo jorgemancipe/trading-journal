@@ -207,7 +207,10 @@ export default function RiskPanel() {
       drawdown > 0
         ? netPnL / drawdown
         : 0;
-
+      const profitTargetProgress =
+  profitTarget > 0
+    ? (netPnL / profitTarget) * 100
+    : 0;
     let greenDays = 0;
     let redDays = 0;
 
@@ -242,6 +245,7 @@ export default function RiskPanel() {
       longWinRate,
       shortWinRate, 
       longTrades,
+      profitTargetProgress,
       shortTrades,
       longPnL,
       shortPnL,
@@ -350,7 +354,10 @@ export default function RiskPanel() {
           label="Recovery Factor"
           value={stats.recoveryFactor.toFixed(2)}
         />
-
+        <Metric
+          label="Target Progress"
+          value={`${stats.profitTargetProgress.toFixed(1)}%`}
+        />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
