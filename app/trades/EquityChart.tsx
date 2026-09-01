@@ -72,6 +72,7 @@ export default function EquityChart() {
         new Date(b.date).getTime()
       );
     });
+   
 
     const data = sortedTrades.map(
       (trade: any, index: number) => {
@@ -116,7 +117,38 @@ export default function EquityChart() {
           : 0,
     };
   }, [trades, mode]);
+ const dailyData = useMemo(() => {
+  const byDay: Record<string, number> = {};
 
+  for (const trade of trades || []) {
+    const day =
+      typeof trade.date === "string"
+        ? trade.date.slice(0, 10)
+        : "";
+
+    const pnl =
+      mode === "NET"
+        ? n(trade.profit)
+        : n(trade.grossProfit ?? trade.profit);
+
+    byDay[day] = (byDay[day] || 0) + pnl;
+  }
+
+  let equity = 0;
+
+  return Object.entries(byDay)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, pnl]) => {
+      equity += pnl;
+
+      return {
+        day,
+        pnl,
+        equity,
+      };
+    });
+    }, [trades, mode]);
+    
   return (
     <div className="bg-slate-950 border border-slate-800 p-6 rounded-xl text-white space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -267,7 +299,53 @@ export default function EquityChart() {
           </ResponsiveContainer>
         </div>
       )}
+      {dailyData.length > 0 && (
+  <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+    <h3 className="font-semibold mb-4">
+      Daily Equity Curve
+    </h3>
 
+    <div className="h-[300px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={dailyData}>
+          <CartesianGrid
+            stroke="#1e293b"
+            strokeDasharray="4 4"
+          />
+
+          <XAxis
+            dataKey="day"
+            stroke="#94a3b8"
+          />
+
+          <YAxis
+            stroke="#94a3b8"
+          />
+
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "#020617",
+              border: "1px solid #334155",
+              borderRadius: "8px",
+            }}
+            formatter={(value: any) => [
+              fmt(n(value)),
+              "Equity",
+            ]}
+          />
+
+          <Line
+            type="monotone"
+            dataKey="equity"
+            stroke="#22c55e"
+            strokeWidth={3}
+            dot={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+)}
       <div className="flex flex-wrap gap-4 text-xs text-slate-400">
         <span>Green: equity</span>
         <span>Blue: high watermark</span>
